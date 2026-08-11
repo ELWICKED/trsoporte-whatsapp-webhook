@@ -946,6 +946,7 @@ const server = http.createServer(async (req, res) => {
 
                                 // -----------------------------------------
                                 // PRIMER MENSAJE
+                                // PEDIR DESCRIPCIÓN DEL PROBLEMA
                                 // -----------------------------------------
 
                                 if (
@@ -953,12 +954,14 @@ const server = http.createServer(async (req, res) => {
                                 ) {
 
                                     respuestaAutomatica =
-                                        "Hola 👋 Gracias por comunicarte con TR Soporte. Recibimos tu mensaje correctamente. En breve un agente de soporte se comunicará con vos.";
+                                        "Hola 👋 Gracias por comunicarte con TR Soporte. Recibimos tu mensaje correctamente.\n\nMientras tanto, contanos brevemente cuál es el problema que estás teniendo para que podamos ayudarte mejor. 🛠️";
 
                                 }
 
                                 // -----------------------------------------
                                 // SEGUNDO MENSAJE
+                                // INFORMAR NÚMERO DE CASO
+                                // Y DEJAR ESPERANDO AL AGENTE
                                 // -----------------------------------------
 
                                 else if (
@@ -966,11 +969,11 @@ const server = http.createServer(async (req, res) => {
                                 ) {
 
                                     respuestaAutomatica =
-                                        `📋 Tu número de ticket es #${conversacion.numero_ticket}.
+                                        `📋 Tu número de caso es #${conversacion.numero_ticket}.
 
-Mientras tanto, contanos brevemente cuál es el problema para que podamos ayudarte más rápido. 🛠️
+Gracias por la información. Un agente de soporte revisará tu solicitud y se comunicará con vos.
 
-Un agente revisará tu solicitud y se comunicará con vos.`;
+Por favor, aguardá el contacto del agente.`;
 
                                 }
 
@@ -982,7 +985,7 @@ Un agente revisará tu solicitud y se comunicará con vos.`;
                                 else {
 
                                     console.log(
-                                        "No se envía respuesta automática. El cliente ya recibió las respuestas iniciales."
+                                        "No se envía respuesta automática. El cliente ya recibió las respuestas iniciales y el caso está esperando al agente."
                                     );
                                 }
 
