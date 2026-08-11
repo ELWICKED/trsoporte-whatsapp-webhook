@@ -1388,6 +1388,64 @@ const server =
             }
 
             // =================================================
+            // LISTAR AGENTES
+            // =================================================
+
+            if (
+                req.method === "GET" &&
+                pathname === "/agentes"
+            ) {
+
+                try {
+
+                    const {
+                        data: agentes,
+                        error
+                    } = await supabase
+                        .from("agentes")
+                        .select("*")
+                        .order(
+                            "nombre",
+                            {
+                                ascending: true
+                            }
+                        );
+
+                    if (error) {
+                        throw error;
+                    }
+
+                    responderJSON(
+                        res,
+                        200,
+                        {
+                            success:
+                                true,
+
+                            agentes:
+                                agentes || []
+                        }
+                    );
+
+                } catch (error) {
+
+                    responderJSON(
+                        res,
+                        500,
+                        {
+                            success:
+                                false,
+
+                            error:
+                                error.message
+                        }
+                    );
+                }
+
+                return;
+            }
+
+            // =================================================
             // LISTAR TICKETS
             // =================================================
 
@@ -1677,24 +1735,28 @@ const server =
                     const agenteId =
                         data.agente_id;
 
-                    if (
-                        agenteId === undefined ||
-                        agenteId === null
-                    ) {
+                    if (agenteId === undefined) {
                         throw new Error(
                             "Falta agente_id."
                         );
                     }
 
-                    const agente =
-                        await obtenerAgente(
-                            agenteId
-                        );
+                    let agente =
+                        null;
 
-                    if (!agente) {
-                        throw new Error(
-                            "El agente no existe."
-                        );
+                    // Si viene un ID, verificar que el agente exista.
+                    if (agenteId !== null) {
+
+                        agente =
+                            await obtenerAgente(
+                                agenteId
+                            );
+
+                        if (!agente) {
+                            throw new Error(
+                                "El agente no existe."
+                            );
+                        }
                     }
 
                     // -----------------------------------------
@@ -1733,9 +1795,13 @@ const server =
 
                         agenteId,
 
-                        "ticket_asignado",
+                        agenteId === null
+                            ? "ticket_desasignado"
+                            : "ticket_asignado",
 
-                        `Ticket asignado a ${agente.nombre}.`
+                        agenteId === null
+                            ? "Ticket desasignado."
+                            : `Ticket asignado a ${agente.nombre}.`
 
                     );
 
