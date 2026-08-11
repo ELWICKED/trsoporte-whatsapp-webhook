@@ -172,6 +172,10 @@ const server = http.createServer((req, res) => {
     res.end("Not Found");
 });
 
+// ==========================================
+// INICIAR SERVIDOR
+// ==========================================
+
 server.listen(PORT, () => {
     console.log(`Servidor iniciado en el puerto ${PORT}`);
 });
