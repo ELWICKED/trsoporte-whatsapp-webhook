@@ -116,14 +116,17 @@ const whatsappUrl =
                         "Content-Type": "application/json"
                     },
 
-                    body: JSON.stringify({
-                        messaging_product: "whatsapp",
-                        to: to,
-                        type: "text",
-                        text: {
-                            body: message
-                        }
-                    })
+body: JSON.stringify({
+    messaging_product: "whatsapp",
+    to: to,
+    type: "template",
+    template: {
+        name: "3p_direct_integration_test_template",
+        language: {
+            code: "en_US"
+        }
+    }
+})
                 });
 
                 const result = await response.json();
