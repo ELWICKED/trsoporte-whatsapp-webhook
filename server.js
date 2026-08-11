@@ -1311,16 +1311,72 @@ throw errorHistorial;
             }
 
 
-            // =========================================
-            // RUTA NO ENCONTRADA
-            // =========================================
+// =====================================================
+// HEALTH CHECK
+// =====================================================
 
-            res.writeHead(404);
+if (
+    req.method === "GET" &&
+    parsedUrl.pathname === "/health"
+) {
 
-            res.end(
-                "Not Found"
-            );
+    try {
 
+        const { error } = await supabase
+            .from("agentes")
+            .select("id")
+            .limit(1);
+
+        if (error) {
+            throw error;
+        }
+
+        res.writeHead(200, {
+            "Content-Type": "application/json"
+        });
+
+        res.end(
+            JSON.stringify({
+                servidor: "OK",
+                supabase: "OK",
+                estado: "ONLINE"
+            })
+        );
+
+        return;
+
+    } catch (error) {
+
+        console.error(
+            "Error en health check:",
+            error
+        );
+
+        res.writeHead(503, {
+            "Content-Type": "application/json"
+        });
+
+        res.end(
+            JSON.stringify({
+                servidor: "OK",
+                supabase: "ERROR",
+                estado: "DEGRADED",
+                error: error.message
+            })
+        );
+
+        return;
+    }
+}
+
+
+// =====================================================
+// RUTA NO ENCONTRADA
+// =====================================================
+
+res.writeHead(404);
+
+res.end("Not Found");
         }
     );
 
