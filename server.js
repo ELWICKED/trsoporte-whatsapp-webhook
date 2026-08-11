@@ -64,9 +64,7 @@ async function enviarMensajeWhatsApp(to, message) {
             }
         );
 
-
         const result = await response.json();
-
 
         console.log("=================================");
         console.log("RESPUESTA ENVIADA A WHATSAPP");
@@ -83,7 +81,6 @@ async function enviarMensajeWhatsApp(to, message) {
             );
 
         }
-
 
         return result;
 
@@ -148,11 +145,10 @@ async function procesarMensajeWhatsApp(body) {
             const telefono =
                 message.from;
 
-            let tipo =
+            const tipo =
                 message.type;
 
-            let contenido =
-                "";
+            let contenido = "";
 
 
             // -----------------------------------------
@@ -189,13 +185,9 @@ async function procesarMensajeWhatsApp(body) {
                 data: cliente,
                 error: errorCliente
             } = await supabase
-
                 .from("clientes")
-
                 .select("*")
-
                 .eq("telefono", telefono)
-
                 .maybeSingle();
 
 
@@ -219,9 +211,7 @@ async function procesarMensajeWhatsApp(body) {
                     data: nuevoCliente,
                     error
                 } = await supabase
-
                     .from("clientes")
-
                     .insert({
 
                         telefono:
@@ -240,9 +230,7 @@ async function procesarMensajeWhatsApp(body) {
                             new Date().toISOString()
 
                     })
-
                     .select()
-
                     .single();
 
 
@@ -269,16 +257,13 @@ async function procesarMensajeWhatsApp(body) {
 
 
                 await supabase
-
                     .from("clientes")
-
                     .update({
 
                         ultima_interaccion:
                             new Date().toISOString()
 
                     })
-
                     .eq(
                         "id",
                         cliente.id
@@ -301,30 +286,23 @@ async function procesarMensajeWhatsApp(body) {
                 data: conversacionAbierta,
                 error: errorConversacion
             } = await supabase
-
                 .from("conversaciones")
-
                 .select("*")
-
                 .eq(
                     "cliente_id",
                     cliente.id
                 )
-
                 .eq(
                     "estado",
                     "abierta"
                 )
-
                 .order(
                     "ultima_interaccion",
                     {
                         ascending: false
                     }
                 )
-
                 .limit(1)
-
                 .maybeSingle();
 
 
@@ -348,21 +326,16 @@ async function procesarMensajeWhatsApp(body) {
                     data: ticketReciente,
                     error: errorTicketReciente
                 } = await supabase
-
                     .from("conversaciones")
-
                     .select("*")
-
                     .eq(
                         "cliente_id",
                         cliente.id
                     )
-
                     .eq(
                         "estado",
                         "cerrado"
                     )
-
                     .gte(
                         "cerrado_en",
                         new Date(
@@ -370,16 +343,13 @@ async function procesarMensajeWhatsApp(body) {
                             4 * 60 * 60 * 1000
                         ).toISOString()
                     )
-
                     .order(
                         "cerrado_en",
                         {
                             ascending: false
                         }
                     )
-
                     .limit(1)
-
                     .maybeSingle();
 
 
@@ -398,9 +368,7 @@ async function procesarMensajeWhatsApp(body) {
                         data: ticketReabierto,
                         error: errorReapertura
                     } = await supabase
-
                         .from("conversaciones")
-
                         .update({
 
                             estado:
@@ -413,14 +381,11 @@ async function procesarMensajeWhatsApp(body) {
                                 new Date().toISOString()
 
                         })
-
                         .eq(
                             "id",
                             ticketReciente.id
                         )
-
                         .select()
-
                         .single();
 
 
@@ -446,9 +411,7 @@ async function procesarMensajeWhatsApp(body) {
                     const {
                         error: errorHistorial
                     } = await supabase
-
                         .from("ticket_historial")
-
                         .insert({
 
                             conversacion_id:
@@ -490,9 +453,7 @@ async function procesarMensajeWhatsApp(body) {
                     data: nuevaConversacion,
                     error
                 } = await supabase
-
                     .from("conversaciones")
-
                     .insert({
 
                         cliente_id:
@@ -505,9 +466,7 @@ async function procesarMensajeWhatsApp(body) {
                             new Date().toISOString()
 
                     })
-
                     .select()
-
                     .single();
 
 
@@ -533,9 +492,7 @@ async function procesarMensajeWhatsApp(body) {
                 const {
                     error: errorHistorial
                 } = await supabase
-
                     .from("ticket_historial")
-
                     .insert({
 
                         conversacion_id:
@@ -565,16 +522,13 @@ async function procesarMensajeWhatsApp(body) {
             // -----------------------------------------
 
             await supabase
-
                 .from("conversaciones")
-
                 .update({
 
                     ultima_interaccion:
                         new Date().toISOString()
 
                 })
-
                 .eq(
                     "id",
                     conversacion.id
@@ -589,9 +543,7 @@ async function procesarMensajeWhatsApp(body) {
                 data: mensajeGuardado,
                 error: errorMensaje
             } = await supabase
-
                 .from("mensajes")
-
                 .insert({
 
                     cliente_id:
@@ -616,9 +568,7 @@ async function procesarMensajeWhatsApp(body) {
                         "recibido"
 
                 })
-
                 .select()
-
                 .single();
 
 
@@ -638,16 +588,13 @@ async function procesarMensajeWhatsApp(body) {
             // -----------------------------------------
 
             await supabase
-
                 .from("clientes")
-
                 .update({
 
                     ultima_interaccion:
                         new Date().toISOString()
 
                 })
-
                 .eq(
                     "id",
                     cliente.id
@@ -687,9 +634,7 @@ async function procesarMensajeWhatsApp(body) {
                 const {
                     error: errorMensajeSalida
                 } = await supabase
-
                     .from("mensajes")
-
                     .insert({
 
                         cliente_id:
@@ -728,9 +673,7 @@ async function procesarMensajeWhatsApp(body) {
                 const {
                     error: errorHistorialSalida
                 } = await supabase
-
                     .from("ticket_historial")
-
                     .insert({
 
                         conversacion_id:
@@ -775,7 +718,7 @@ async function procesarMensajeWhatsApp(body) {
 
 const server =
     http.createServer(
-        (req, res) => {
+        async (req, res) => {
 
             const parsedUrl =
                 url.parse(
@@ -808,6 +751,99 @@ const server =
 
 
                 return;
+            }
+
+
+            // =========================================
+            // HEALTH CHECK
+            // =========================================
+
+            if (
+                req.method === "GET" &&
+                parsedUrl.pathname === "/health"
+            ) {
+
+                try {
+
+                    const {
+                        error
+                    } = await supabase
+                        .from("agentes")
+                        .select("id")
+                        .limit(1);
+
+
+                    if (error) {
+                        throw error;
+                    }
+
+
+                    res.writeHead(
+                        200,
+                        {
+                            "Content-Type":
+                                "application/json"
+                        }
+                    );
+
+
+                    res.end(
+                        JSON.stringify({
+
+                            servidor:
+                                "OK",
+
+                            supabase:
+                                "OK",
+
+                            estado:
+                                "ONLINE"
+
+                        })
+                    );
+
+
+                    return;
+
+                } catch (error) {
+
+                    console.error(
+                        "Error en health check:",
+                        error
+                    );
+
+
+                    res.writeHead(
+                        503,
+                        {
+                            "Content-Type":
+                                "application/json"
+                        }
+                    );
+
+
+                    res.end(
+                        JSON.stringify({
+
+                            servidor:
+                                "OK",
+
+                            supabase:
+                                "ERROR",
+
+                            estado:
+                                "DEGRADED",
+
+                            error:
+                                error.message
+
+                        })
+                    );
+
+
+                    return;
+                }
+
             }
 
 
@@ -943,8 +979,10 @@ const server =
 
                             res.end(
                                 JSON.stringify({
+
                                     status:
                                         "received"
+
                                 })
                             );
 
@@ -1088,20 +1126,16 @@ const server =
                                     error:
                                         errorConversacion
                                 } = await supabase
-
                                     .from(
                                         "conversaciones"
                                     )
-
                                     .select(
                                         "cliente_id"
                                     )
-
                                     .eq(
                                         "id",
                                         conversacionId
                                     )
-
                                     .single();
 
 
@@ -1109,7 +1143,7 @@ const server =
                                     errorConversacion
                                 ) {
 
-throw errorConversacion;
+                                    throw errorConversacion;
 
                                 }
 
@@ -1128,11 +1162,9 @@ throw errorConversacion;
                                     error:
                                         errorMensaje
                                 } = await supabase
-
                                     .from(
                                         "mensajes"
                                     )
-
                                     .insert({
 
                                         cliente_id:
@@ -1163,7 +1195,7 @@ throw errorConversacion;
                                     errorMensaje
                                 ) {
 
-throw errorMensaje;
+                                    throw errorMensaje;
 
                                 }
 
@@ -1176,11 +1208,9 @@ throw errorMensaje;
                                     error:
                                         errorActualizacion
                                 } = await supabase
-
                                     .from(
                                         "conversaciones"
                                     )
-
                                     .update({
 
                                         ultima_interaccion:
@@ -1188,7 +1218,6 @@ throw errorMensaje;
                                                 .toISOString()
 
                                     })
-
                                     .eq(
                                         "id",
                                         conversacionId
@@ -1199,7 +1228,7 @@ throw errorMensaje;
                                     errorActualizacion
                                 ) {
 
-throw errorActualizacion;
+                                    throw errorActualizacion;
 
                                 }
 
@@ -1212,11 +1241,9 @@ throw errorActualizacion;
                                     error:
                                         errorHistorial
                                 } = await supabase
-
                                     .from(
                                         "ticket_historial"
                                     )
-
                                     .insert({
 
                                         conversacion_id:
@@ -1239,7 +1266,7 @@ throw errorActualizacion;
                                     errorHistorial
                                 ) {
 
-throw errorHistorial;
+                                    throw errorHistorial;
 
                                 }
 
@@ -1311,72 +1338,14 @@ throw errorHistorial;
             }
 
 
-// =====================================================
-// HEALTH CHECK
-// =====================================================
+            // =========================================
+            // RUTA NO ENCONTRADA
+            // =========================================
 
-if (
-    req.method === "GET" &&
-    parsedUrl.pathname === "/health"
-) {
+            res.writeHead(404);
 
-    try {
+            res.end("Not Found");
 
-        const { error } = await supabase
-            .from("agentes")
-            .select("id")
-            .limit(1);
-
-        if (error) {
-            throw error;
-        }
-
-        res.writeHead(200, {
-            "Content-Type": "application/json"
-        });
-
-        res.end(
-            JSON.stringify({
-                servidor: "OK",
-                supabase: "OK",
-                estado: "ONLINE"
-            })
-        );
-
-        return;
-
-    } catch (error) {
-
-        console.error(
-            "Error en health check:",
-            error
-        );
-
-        res.writeHead(503, {
-            "Content-Type": "application/json"
-        });
-
-        res.end(
-            JSON.stringify({
-                servidor: "OK",
-                supabase: "ERROR",
-                estado: "DEGRADED",
-                error: error.message
-            })
-        );
-
-        return;
-    }
-}
-
-
-// =====================================================
-// RUTA NO ENCONTRADA
-// =====================================================
-
-res.writeHead(404);
-
-res.end("Not Found");
         }
     );
 
