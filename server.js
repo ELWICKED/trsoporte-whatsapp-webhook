@@ -19,6 +19,74 @@ const supabase = createClient(
 
 console.log("Cliente de Supabase inicializado.");
 
+// =====================================================
+// ENVIAR MENSAJE DE TEXTO POR WHATSAPP
+// =====================================================
+
+async function enviarMensajeWhatsApp(to, message) {
+
+    try {
+
+        const whatsappUrl =
+            `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`;
+
+        const response = await fetch(
+            whatsappUrl,
+            {
+                method: "POST",
+
+                headers: {
+                    "Authorization":
+                        `Bearer ${ACCESS_TOKEN}`,
+
+                    "Content-Type":
+                        "application/json"
+                },
+
+                body: JSON.stringify({
+                    messaging_product: "whatsapp",
+                    recipient_type: "individual",
+                    to: to,
+                    type: "text",
+
+                    text: {
+                        body: message
+                    }
+                })
+            }
+        );
+
+        const result = await response.json();
+
+        console.log("=================================");
+        console.log("RESPUESTA ENVIADA A WHATSAPP");
+        console.log("Teléfono:", to);
+        console.log("Mensaje:", message);
+        console.log("Respuesta de Meta:", result);
+        console.log("=================================");
+
+        if (!response.ok) {
+            throw new Error(
+                `Meta devolvió error: ${JSON.stringify(result)}`
+            );
+        }
+
+        return result;
+
+    } catch (error) {
+
+        console.error("ERROR ENVIANDO MENSAJE DE WHATSAPP:");
+        console.error(error);
+
+        throw error;
+    }
+}
+
+
+// =====================================================
+// PROCESAR MENSAJE DE WHATSAPP
+// =====================================================
+
 async function procesarMensajeWhatsApp(body) {
 
     try {
@@ -60,9 +128,13 @@ async function procesarMensajeWhatsApp(body) {
             let contenido = "";
 
             if (tipo === "text") {
+
                 contenido = message.text?.body || "";
+
             } else {
+
                 contenido = `[Mensaje de tipo ${tipo}]`;
+
             }
 
             console.log("=================================");
@@ -73,19 +145,22 @@ async function procesarMensajeWhatsApp(body) {
             console.log("ID:", whatsappMessageId);
             console.log("=================================");
 
+
             // -----------------------------------------
             // 1. BUSCAR CLIENTE
             // -----------------------------------------
 
-            let { data: cliente, error: errorCliente } = await supabase
-                .from("clientes")
-                .select("*")
-                .eq("telefono", telefono)
-                .maybeSingle();
+            let { data: cliente, error: errorCliente } =
+                await supabase
+                    .from("clientes")
+                    .select("*")
+                    .eq("telefono", telefono)
+                    .maybeSingle();
 
             if (errorCliente) {
                 throw errorCliente;
             }
+
 
             // -----------------------------------------
             // 2. CREAR CLIENTE SI NO EXISTE
@@ -97,16 +172,17 @@ async function procesarMensajeWhatsApp(body) {
                     value.contacts?.[0]?.profile?.name ||
                     "Cliente WhatsApp";
 
-                const { data: nuevoCliente, error } = await supabase
-                    .from("clientes")
-                    .insert({
-                        telefono: telefono,
-                        nombre: nombre,
-                        activo: true,
-                        baja_comunicaciones: false
-                    })
-                    .select()
-                    .single();
+                const { data: nuevoCliente, error } =
+                    await supabase
+                        .from("clientes")
+                        .insert({
+                            telefono: telefono,
+                            nombre: nombre,
+                            activo: true,
+                            baja_comunicaciones: false
+                        })
+                        .select()
+                        .single();
 
                 if (error) {
                     throw error;
@@ -114,19 +190,27 @@ async function procesarMensajeWhatsApp(body) {
 
                 cliente = nuevoCliente;
 
-                console.log("Nuevo cliente creado:", cliente.id);
+                console.log(
+                    "Nuevo cliente creado:",
+                    cliente.id
+                );
 
             } else {
 
-                console.log("Cliente existente:", cliente.id);
+                console.log(
+                    "Cliente existente:",
+                    cliente.id
+                );
 
                 await supabase
                     .from("clientes")
                     .update({
-                        ultima_interaccion: new Date().toISOString()
+                        ultima_interaccion:
+                            new Date().toISOString()
                     })
                     .eq("id", cliente.id);
             }
+
 
             // -----------------------------------------
             // 3. BUSCAR CONVERSACIÓN ABIERTA
@@ -148,21 +232,24 @@ async function procesarMensajeWhatsApp(body) {
                 throw errorConversacion;
             }
 
+
             // -----------------------------------------
             // 4. CREAR CONVERSACIÓN SI NO EXISTE
             // -----------------------------------------
 
             if (!conversacion) {
 
-                const { data: nuevaConversacion, error } =
-                    await supabase
-                        .from("conversaciones")
-                        .insert({
-                            cliente_id: cliente.id,
-                            estado: "abierta"
-                        })
-                        .select()
-                        .single();
+                const {
+                    data: nuevaConversacion,
+                    error
+                } = await supabase
+                    .from("conversaciones")
+                    .insert({
+                        cliente_id: cliente.id,
+                        estado: "abierta"
+                    })
+                    .select()
+                    .single();
 
                 if (error) {
                     throw error;
@@ -185,29 +272,33 @@ async function procesarMensajeWhatsApp(body) {
                 await supabase
                     .from("conversaciones")
                     .update({
-                        ultima_interaccion: new Date().toISOString()
+                        ultima_interaccion:
+                            new Date().toISOString()
                     })
                     .eq("id", conversacion.id);
             }
 
+
             // -----------------------------------------
-            // 5. GUARDAR MENSAJE
+            // 5. GUARDAR MENSAJE ENTRANTE
             // -----------------------------------------
 
-            const { data: mensajeGuardado, error: errorMensaje } =
-                await supabase
-                    .from("mensajes")
-                    .insert({
-                        cliente_id: cliente.id,
-                        conversacion_id: conversacion.id,
-                        whatsapp_message_id: whatsappMessageId,
-                        direccion: "entrante",
-                        tipo: tipo,
-                        contenido: contenido,
-                        estado: "recibido"
-                    })
-                    .select()
-                    .single();
+            const {
+                data: mensajeGuardado,
+                error: errorMensaje
+            } = await supabase
+                .from("mensajes")
+                .insert({
+                    cliente_id: cliente.id,
+                    conversacion_id: conversacion.id,
+                    whatsapp_message_id: whatsappMessageId,
+                    direccion: "entrante",
+                    tipo: tipo,
+                    contenido: contenido,
+                    estado: "recibido"
+                })
+                .select()
+                .single();
 
             if (errorMensaje) {
                 throw errorMensaje;
@@ -217,19 +308,46 @@ async function procesarMensajeWhatsApp(body) {
                 "Mensaje guardado correctamente:",
                 mensajeGuardado.id
             );
+
+
+            // -----------------------------------------
+            // 6. RESPUESTA AUTOMÁTICA
+            // -----------------------------------------
+
+            if (tipo === "text") {
+
+                const respuesta =
+                    "Hola 👋 Gracias por comunicarte con TR Soporte. ¿En qué podemos ayudarte?";
+
+                await enviarMensajeWhatsApp(
+                    telefono,
+                    respuesta
+                );
+
+            }
+
         }
 
     } catch (error) {
 
-        console.error("ERROR PROCESANDO MENSAJE:");
+        console.error(
+            "ERROR PROCESANDO MENSAJE:"
+        );
+
         console.error(error);
 
     }
 }
 
+
+// =====================================================
+// SERVIDOR HTTP
+// =====================================================
+
 const server = http.createServer((req, res) => {
 
     const parsedUrl = url.parse(req.url, true);
+
 
     // -----------------------------------------
     // PÁGINA PRINCIPAL
@@ -251,6 +369,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+
     // -----------------------------------------
     // VERIFICACIÓN DEL WEBHOOK DE META
     // -----------------------------------------
@@ -260,9 +379,15 @@ const server = http.createServer((req, res) => {
         parsedUrl.pathname === "/webhook"
     ) {
 
-        const mode = parsedUrl.query["hub.mode"];
-        const token = parsedUrl.query["hub.verify_token"];
-        const challenge = parsedUrl.query["hub.challenge"];
+        const mode =
+            parsedUrl.query["hub.mode"];
+
+        const token =
+            parsedUrl.query["hub.verify_token"];
+
+        const challenge =
+            parsedUrl.query["hub.challenge"];
+
 
         if (
             mode === "subscribe" &&
@@ -292,6 +417,7 @@ const server = http.createServer((req, res) => {
 
         return;
     }
+
 
     // -----------------------------------------
     // RECEPCIÓN DE EVENTOS DE WHATSAPP
@@ -366,124 +492,6 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // -----------------------------------------
-    // ENVIAR MENSAJE DE WHATSAPP
-    // -----------------------------------------
-
-    if (
-        req.method === "POST" &&
-        parsedUrl.pathname === "/send-message"
-    ) {
-
-        let body = "";
-
-        req.on("data", chunk => {
-            body += chunk.toString();
-        });
-
-        req.on("end", async () => {
-
-            try {
-
-                const data = JSON.parse(body);
-
-                const to = data.to;
-                const message = data.message;
-
-                if (!to || !message) {
-
-                    res.writeHead(400, {
-                        "Content-Type": "application/json"
-                    });
-
-                    res.end(
-                        JSON.stringify({
-                            error:
-                                "Faltan los campos 'to' y 'message'."
-                        })
-                    );
-
-                    return;
-                }
-
-                const whatsappUrl =
-                    `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`;
-
-                const response = await fetch(
-                    whatsappUrl,
-                    {
-                        method: "POST",
-
-                        headers: {
-                            "Authorization":
-                                `Bearer ${ACCESS_TOKEN}`,
-
-                            "Content-Type":
-                                "application/json"
-                        },
-
-                        body: JSON.stringify({
-                            messaging_product: "whatsapp",
-                            to: to,
-                            type: "template",
-
-                            template: {
-                                name:
-                                    "3p_direct_integration_test_template",
-
-                                language: {
-                                    code: "en_US"
-                                }
-                            }
-                        })
-                    }
-                );
-
-                const result =
-                    await response.json();
-
-                console.log(
-                    "Respuesta de Meta:"
-                );
-
-                console.log(result);
-
-                res.writeHead(
-                    response.status,
-                    {
-                        "Content-Type":
-                            "application/json"
-                    }
-                );
-
-                res.end(
-                    JSON.stringify(result)
-                );
-
-            } catch (error) {
-
-                console.error(
-                    "Error enviando mensaje:"
-                );
-
-                console.error(error);
-
-                res.writeHead(500, {
-                    "Content-Type":
-                        "application/json"
-                });
-
-                res.end(
-                    JSON.stringify({
-                        error: error.message
-                    })
-                );
-            }
-
-        });
-
-        return;
-    }
 
     // -----------------------------------------
     // RUTA NO ENCONTRADA
@@ -495,9 +503,10 @@ const server = http.createServer((req, res) => {
 
 });
 
-// -----------------------------------------
+
+// =====================================================
 // INICIAR SERVIDOR
-// -----------------------------------------
+// =====================================================
 
 server.listen(PORT, () => {
 
