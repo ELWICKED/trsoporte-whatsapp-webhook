@@ -1020,7 +1020,6 @@ Por favor, aguardá el contacto del agente.`;
                                         "Respuesta automática enviada correctamente."
                                     );
                                 }
-
                             }
                         }
                     }
@@ -1083,7 +1082,6 @@ Por favor, aguardá el contacto del agente.`;
                         })
                     );
                 }
-
             }
         );
 
@@ -1182,6 +1180,301 @@ Por favor, aguardá el contacto del agente.`;
 
             console.error(
                 "ERROR OBTENIENDO TICKETS"
+            );
+
+            console.error(
+                "========================================="
+            );
+
+            console.error(error);
+
+            res.writeHead(
+                500,
+                {
+                    "Content-Type":
+                        "application/json"
+                }
+            );
+
+            res.end(
+                JSON.stringify({
+
+                    success:
+                        false,
+
+                    error:
+                        error.message
+
+                })
+            );
+        }
+
+        return;
+    }
+
+    // =================================================
+    // OBTENER TICKET COMPLETO
+    // =================================================
+
+    if (
+        req.method === "GET" &&
+        parsedUrl.pathname.startsWith("/tickets/")
+    ) {
+
+        try {
+
+            console.log(
+                "Solicitud recibida:",
+                req.method,
+                parsedUrl.pathname
+            );
+
+            // -----------------------------------------
+            // OBTENER ID
+            // -----------------------------------------
+
+            const partes =
+                parsedUrl.pathname.split("/");
+
+            const idTexto =
+                partes[2];
+
+            const conversacionId =
+                parseInt(
+                    idTexto,
+                    10
+                );
+
+            if (
+                !idTexto ||
+                isNaN(conversacionId)
+            ) {
+
+                res.writeHead(
+                    400,
+                    {
+                        "Content-Type":
+                            "application/json"
+                    }
+                );
+
+                res.end(
+                    JSON.stringify({
+
+                        success:
+                            false,
+
+                        error:
+                            "El ID del ticket no es válido."
+
+                    })
+                );
+
+                return;
+            }
+
+            console.log(
+                "ID de conversación:",
+                conversacionId
+            );
+
+            // =================================================
+            // BUSCAR CONVERSACIÓN
+            // =================================================
+
+            const {
+                data: conversacion,
+                error: errorConversacion
+            } = await supabase
+                .from("conversaciones")
+                .select(`
+                    id,
+                    cliente_id,
+                    agente_id,
+                    estado,
+                    ultima_interaccion,
+                    creado_en,
+                    numero_ticket,
+                    prioridad,
+                    categoria,
+                    cerrado_en,
+                    calificacion,
+                    comentario_calificacion,
+                    calificado_en,
+                    cliente:clientes (
+                        id,
+                        telefono,
+                        nombre,
+                        empresa,
+                        activo,
+                        baja_comunicaciones,
+                        fecha_alta,
+                        ultima_interaccion
+                    ),
+                    agente:agentes (
+                        id,
+                        nombre,
+                        rol,
+                        area,
+                        activo
+                    )
+                `)
+                .eq(
+                    "id",
+                    conversacionId
+                )
+                .single();
+
+            if (
+                errorConversacion
+            ) {
+
+                if (
+                    errorConversacion.code === "PGRST116"
+                ) {
+
+                    res.writeHead(
+                        404,
+                        {
+                            "Content-Type":
+                                "application/json"
+                        }
+                    );
+
+                    res.end(
+                        JSON.stringify({
+
+                            success:
+                                false,
+
+                            error:
+                                "Ticket no encontrado."
+
+                        })
+                    );
+
+                    return;
+                }
+
+                throw errorConversacion;
+            }
+
+            // =================================================
+            // BUSCAR MENSAJES
+            // =================================================
+
+            const {
+                data: mensajes,
+                error: errorMensajes
+            } = await supabase
+                .from("mensajes")
+                .select(`
+                    id,
+                    cliente_id,
+                    conversacion_id,
+                    whatsapp_message_id,
+                    direccion,
+                    tipo,
+                    contenido,
+                    estado,
+                    recibido_en
+                `)
+                .eq(
+                    "conversacion_id",
+                    conversacionId
+                )
+                .order(
+                    "recibido_en",
+                    {
+                        ascending:
+                            true
+                    }
+                );
+
+            if (
+                errorMensajes
+            ) {
+                throw errorMensajes;
+            }
+
+            // =================================================
+            // BUSCAR HISTORIAL
+            // =================================================
+
+            const {
+                data: historial,
+                error: errorHistorial
+            } = await supabase
+                .from("ticket_historial")
+                .select(`
+                    id,
+                    conversacion_id,
+                    agente_id,
+                    accion,
+                    detalle,
+                    creado_en,
+                    agente:agentes (
+                        id,
+                        nombre
+                    )
+                `)
+                .eq(
+                    "conversacion_id",
+                    conversacionId
+                )
+                .order(
+                    "creado_en",
+                    {
+                        ascending:
+                            true
+                    }
+                );
+
+            if (
+                errorHistorial
+            ) {
+                throw errorHistorial;
+            }
+
+            // =================================================
+            // RESPUESTA
+            // =================================================
+
+            res.writeHead(
+                200,
+                {
+                    "Content-Type":
+                        "application/json"
+                }
+            );
+
+            res.end(
+                JSON.stringify({
+
+                    success:
+                        true,
+
+                    ticket:
+                        conversacion,
+
+                    mensajes:
+                        mensajes || [],
+
+                    historial:
+                        historial || []
+
+                })
+            );
+
+        } catch (error) {
+
+            console.error("");
+            console.error(
+                "========================================="
+            );
+
+            console.error(
+                "ERROR OBTENIENDO TICKET"
             );
 
             console.error(
@@ -1452,7 +1745,6 @@ Por favor, aguardá el contacto del agente.`;
                         })
                     );
                 }
-
             }
         );
 
