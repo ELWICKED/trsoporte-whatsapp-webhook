@@ -74,6 +74,7 @@ async function enviarWhatsApp(to, message) {
     console.log("Respuesta de Meta:", result);
 
     if (!response.ok) {
+
         throw new Error(
             result?.error?.message ||
             "Meta rechazó el mensaje."
@@ -946,7 +947,6 @@ const server = http.createServer(async (req, res) => {
 
                                 // -----------------------------------------
                                 // PRIMER MENSAJE
-                                // PEDIR DESCRIPCIÓN DEL PROBLEMA
                                 // -----------------------------------------
 
                                 if (
@@ -960,8 +960,6 @@ const server = http.createServer(async (req, res) => {
 
                                 // -----------------------------------------
                                 // SEGUNDO MENSAJE
-                                // INFORMAR NÚMERO DE CASO
-                                // Y DEJAR ESPERANDO AL AGENTE
                                 // -----------------------------------------
 
                                 else if (
@@ -979,7 +977,6 @@ Por favor, aguardá el contacto del agente.`;
 
                                 // -----------------------------------------
                                 // TERCER MENSAJE EN ADELANTE
-                                // NO RESPONDER
                                 // -----------------------------------------
 
                                 else {
@@ -1052,7 +1049,6 @@ Por favor, aguardá el contacto del agente.`;
                 } catch (error) {
 
                     console.error("");
-
                     console.error(
                         "========================================="
                     );
@@ -1090,6 +1086,130 @@ Por favor, aguardá el contacto del agente.`;
 
             }
         );
+
+        return;
+    }
+
+    // =================================================
+    // LISTAR TICKETS ABIERTOS
+    // =================================================
+
+    if (
+        req.method === "GET" &&
+        parsedUrl.pathname === "/tickets"
+    ) {
+
+        try {
+
+            console.log(
+                "Solicitud recibida: GET /tickets"
+            );
+
+            const {
+                data: tickets,
+                error
+            } = await supabase
+                .from("conversaciones")
+                .select(`
+                    id,
+                    numero_ticket,
+                    estado,
+                    prioridad,
+                    categoria,
+                    ultima_interaccion,
+                    creado_en,
+                    cerrado_en,
+                    cliente:clientes (
+                        id,
+                        nombre,
+                        telefono,
+                        empresa
+                    ),
+                    agente:agentes (
+                        id,
+                        nombre
+                    )
+                `)
+                .eq(
+                    "estado",
+                    "abierta"
+                )
+                .order(
+                    "ultima_interaccion",
+                    {
+                        ascending:
+                            false
+                    }
+                );
+
+            if (
+                error
+            ) {
+                throw error;
+            }
+
+            console.log(
+                "Tickets encontrados:",
+                tickets?.length || 0
+            );
+
+            res.writeHead(
+                200,
+                {
+                    "Content-Type":
+                        "application/json"
+                }
+            );
+
+            res.end(
+                JSON.stringify({
+
+                    success:
+                        true,
+
+                    tickets:
+                        tickets || []
+
+                })
+            );
+
+        } catch (error) {
+
+            console.error("");
+            console.error(
+                "========================================="
+            );
+
+            console.error(
+                "ERROR OBTENIENDO TICKETS"
+            );
+
+            console.error(
+                "========================================="
+            );
+
+            console.error(error);
+
+            res.writeHead(
+                500,
+                {
+                    "Content-Type":
+                        "application/json"
+                }
+            );
+
+            res.end(
+                JSON.stringify({
+
+                    success:
+                        false,
+
+                    error:
+                        error.message
+
+                })
+            );
+        }
 
         return;
     }
@@ -1376,7 +1496,6 @@ Por favor, aguardá el contacto del agente.`;
     );
 
     res.end("Not Found");
-
 });
 
 // =====================================================
