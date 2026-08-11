@@ -28,50 +28,13 @@ const supabase = createClient(
 console.log("Cliente de Supabase inicializado.");
 
 // =====================================================
-// FUNCIÓN: ENVIAR MENSAJE POR WHATSAPP
+// FUNCIÓN: ENVIAR MENSAJE WHATSAPP
 // =====================================================
 
-async function enviarWhatsApp(
-    telefono,
-    mensaje,
-    conversacionId = null,
-    agenteId = null
-) {
-
-    console.log("");
-    console.log("=========================================");
-    console.log("ENVIANDO MENSAJE POR WHATSAPP");
-    console.log("=========================================");
-
-    console.log("TELÉFONO:", telefono);
-    console.log("MENSAJE:", mensaje);
-
-    if (!telefono) {
-        throw new Error("No se recibió el teléfono del destinatario.");
-    }
-
-    if (!mensaje) {
-        throw new Error("No se recibió el mensaje.");
-    }
-
-    if (!ACCESS_TOKEN) {
-        throw new Error("Falta META_ACCESS_TOKEN.");
-    }
-
-    if (!PHONE_NUMBER_ID) {
-        throw new Error("Falta META_PHONE_NUMBER_ID.");
-    }
-
-    // -------------------------------------------------
-    // URL DE WHATSAPP CLOUD API
-    // -------------------------------------------------
+async function enviarWhatsApp(to, message) {
 
     const whatsappUrl =
         `https://graph.facebook.com/v26.0/${PHONE_NUMBER_ID}/messages`;
-
-    // -------------------------------------------------
-    // ENVIAR A META
-    // -------------------------------------------------
 
     const response = await fetch(
         whatsappUrl,
@@ -92,176 +55,122 @@ async function enviarWhatsApp(
                     "whatsapp",
 
                 to:
-                    telefono,
+                    to,
 
                 type:
                     "text",
 
                 text: {
                     body:
-                        mensaje
+                        message
                 }
 
             })
         }
     );
 
-    const result =
-        await response.json();
+    const result = await response.json();
 
-    console.log(
-        "Respuesta de Meta:",
-        JSON.stringify(result, null, 2)
-    );
-
-    // -------------------------------------------------
-    // META RECHAZÓ EL MENSAJE
-    // -------------------------------------------------
+    console.log("Respuesta de Meta:", result);
 
     if (!response.ok) {
-
         throw new Error(
             result?.error?.message ||
-            JSON.stringify(result)
-        );
-    }
-
-    // -------------------------------------------------
-    // OBTENER ID DEL MENSAJE
-    // -------------------------------------------------
-
-    const whatsappMessageId =
-        result.messages?.[0]?.id || null;
-
-    console.log(
-        "Mensaje enviado correctamente:",
-        whatsappMessageId
-    );
-
-    // -------------------------------------------------
-    // GUARDAR MENSAJE SALIENTE
-    // -------------------------------------------------
-
-    if (conversacionId) {
-
-        // ---------------------------------------------
-        // BUSCAR CLIENTE DE LA CONVERSACIÓN
-        // ---------------------------------------------
-
-        const {
-            data: conversacion,
-            error: errorConversacion
-        } = await supabase
-            .from("conversaciones")
-            .select("cliente_id")
-            .eq(
-                "id",
-                conversacionId
-            )
-            .single();
-
-        if (errorConversacion) {
-            throw errorConversacion;
-        }
-
-        // ---------------------------------------------
-        // GUARDAR MENSAJE
-        // ---------------------------------------------
-
-        const {
-            error: errorMensaje
-        } = await supabase
-            .from("mensajes")
-            .insert({
-
-                cliente_id:
-                    conversacion.cliente_id,
-
-                conversacion_id:
-                    conversacionId,
-
-                whatsapp_message_id:
-                    whatsappMessageId,
-
-                direccion:
-                    "saliente",
-
-                tipo:
-                    "text",
-
-                contenido:
-                    mensaje,
-
-                estado:
-                    "enviado"
-
-            });
-
-        if (errorMensaje) {
-            throw errorMensaje;
-        }
-
-        console.log(
-            "Mensaje saliente guardado en Supabase."
-        );
-
-        // ---------------------------------------------
-        // ACTUALIZAR ÚLTIMA INTERACCIÓN
-        // ---------------------------------------------
-
-        const {
-            error: errorActualizacion
-        } = await supabase
-            .from("conversaciones")
-            .update({
-
-                ultima_interaccion:
-                    new Date().toISOString()
-
-            })
-            .eq(
-                "id",
-                conversacionId
-            );
-
-        if (errorActualizacion) {
-            throw errorActualizacion;
-        }
-
-        // ---------------------------------------------
-        // GUARDAR HISTORIAL
-        // ---------------------------------------------
-
-        const {
-            error: errorHistorial
-        } = await supabase
-            .from("ticket_historial")
-            .insert({
-
-                conversacion_id:
-                    conversacionId,
-
-                agente_id:
-                    agenteId || null,
-
-                accion:
-                    "mensaje_enviado",
-
-                detalle:
-                    "Respuesta automática enviada al cliente por WhatsApp."
-
-            });
-
-        if (errorHistorial) {
-            throw errorHistorial;
-        }
-
-        console.log(
-            "Historial: mensaje_enviado"
+            "Meta rechazó el mensaje."
         );
     }
 
     return result;
+}
+
+// =====================================================
+// FUNCIÓN: GUARDAR MENSAJE SALIENTE
+// =====================================================
+
+async function guardarMensajeSaliente(
+    conversacion,
+    mensaje,
+    agenteId = null,
+    whatsappMessageId = null
+) {
+
+    const {
+        error: errorMensaje
+    } = await supabase
+        .from("mensajes")
+        .insert({
+
+            cliente_id:
+                conversacion.cliente_id,
+
+            conversacion_id:
+                conversacion.id,
+
+            whatsapp_message_id:
+                whatsappMessageId,
+
+            direccion:
+                "saliente",
+
+            tipo:
+                "text",
+
+            contenido:
+                mensaje,
+
+            estado:
+                "enviado"
+        });
+
+    if (errorMensaje) {
+        throw errorMensaje;
+    }
+
+    // Actualizar última interacción
+
+    const {
+        error: errorActualizacion
+    } = await supabase
+        .from("conversaciones")
+        .update({
+
+            ultima_interaccion:
+                new Date().toISOString()
+
+        })
+        .eq(
+            "id",
+            conversacion.id
+        );
+
+    if (errorActualizacion) {
+        throw errorActualizacion;
+    }
+
+    // Guardar historial
+
+    const {
+        error: errorHistorial
+    } = await supabase
+        .from("ticket_historial")
+        .insert({
+
+            conversacion_id:
+                conversacion.id,
+
+            agente_id:
+                agenteId,
+
+            accion:
+                "mensaje_enviado",
+
+            detalle:
+                "Mensaje automático enviado al cliente por WhatsApp."
+        });
+
+    if (errorHistorial) {
+        throw errorHistorial;
+    }
 }
 
 // =====================================================
@@ -469,9 +378,11 @@ const server = http.createServer(async (req, res) => {
                     console.log(
                         "========================================="
                     );
+
                     console.log(
                         "WEBHOOK DE WHATSAPP RECIBIDO"
                     );
+
                     console.log(
                         "========================================="
                     );
@@ -484,9 +395,9 @@ const server = http.createServer(async (req, res) => {
                         )
                     );
 
-                    // ---------------------------------
+                    // -----------------------------------------
                     // RECORRER ENTRIES
-                    // ---------------------------------
+                    // -----------------------------------------
 
                     const entries =
                         data.entry || [];
@@ -512,9 +423,9 @@ const server = http.createServer(async (req, res) => {
                             const messages =
                                 value.messages || [];
 
-                            // ---------------------------------
+                            // -------------------------------------
                             // PROCESAR CADA MENSAJE
-                            // ---------------------------------
+                            // -------------------------------------
 
                             for (
                                 const message of messages
@@ -524,9 +435,11 @@ const server = http.createServer(async (req, res) => {
                                 console.log(
                                     "-----------------------------------------"
                                 );
+
                                 console.log(
                                     "MENSAJE DE WHATSAPP"
                                 );
+
                                 console.log(
                                     "-----------------------------------------"
                                 );
@@ -601,10 +514,12 @@ const server = http.createServer(async (req, res) => {
                                 }
 
                                 // =================================================
-                                // EVITAR MENSAJES DUPLICADOS
+                                // 0. EVITAR MENSAJES DUPLICADOS
                                 // =================================================
 
-                                if (whatsappMessageId) {
+                                if (
+                                    whatsappMessageId
+                                ) {
 
                                     const {
                                         data: mensajeExistente,
@@ -618,14 +533,18 @@ const server = http.createServer(async (req, res) => {
                                         )
                                         .maybeSingle();
 
-                                    if (errorDuplicado) {
+                                    if (
+                                        errorDuplicado
+                                    ) {
                                         throw errorDuplicado;
                                     }
 
-                                    if (mensajeExistente) {
+                                    if (
+                                        mensajeExistente
+                                    ) {
 
                                         console.log(
-                                            "Mensaje duplicado. Se ignora:",
+                                            "Mensaje duplicado ignorado:",
                                             whatsappMessageId
                                         );
 
@@ -652,7 +571,9 @@ const server = http.createServer(async (req, res) => {
                                     )
                                     .maybeSingle();
 
-                                if (errorCliente) {
+                                if (
+                                    errorCliente
+                                ) {
                                     throw errorCliente;
                                 }
 
@@ -660,7 +581,9 @@ const server = http.createServer(async (req, res) => {
                                 // CLIENTE EXISTENTE
                                 // ---------------------------------
 
-                                if (clienteExistente) {
+                                if (
+                                    clienteExistente
+                                ) {
 
                                     cliente =
                                         clienteExistente;
@@ -669,6 +592,7 @@ const server = http.createServer(async (req, res) => {
                                         "Cliente encontrado:",
                                         cliente.id
                                     );
+
                                 }
 
                                 // ---------------------------------
@@ -704,7 +628,9 @@ const server = http.createServer(async (req, res) => {
                                         .select()
                                         .single();
 
-                                    if (errorNuevoCliente) {
+                                    if (
+                                        errorNuevoCliente
+                                    ) {
                                         throw errorNuevoCliente;
                                     }
 
@@ -747,7 +673,9 @@ const server = http.createServer(async (req, res) => {
                                     )
                                     .limit(1);
 
-                                if (errorConversaciones) {
+                                if (
+                                    errorConversaciones
+                                ) {
                                     throw errorConversaciones;
                                 }
 
@@ -775,7 +703,9 @@ const server = http.createServer(async (req, res) => {
                                 let ticketCreado =
                                     false;
 
-                                if (!conversacion) {
+                                if (
+                                    !conversacion
+                                ) {
 
                                     const {
                                         data: nuevaConversacion,
@@ -797,7 +727,9 @@ const server = http.createServer(async (req, res) => {
                                         .select()
                                         .single();
 
-                                    if (errorNuevaConversacion) {
+                                    if (
+                                        errorNuevaConversacion
+                                    ) {
                                         throw errorNuevaConversacion;
                                     }
 
@@ -811,10 +743,57 @@ const server = http.createServer(async (req, res) => {
                                         "Nueva conversación creada:",
                                         conversacion.id
                                     );
+
+                                    console.log(
+                                        "Número de ticket:",
+                                        conversacion.numero_ticket
+                                    );
                                 }
 
                                 // =================================================
-                                // 4. GUARDAR MENSAJE ENTRANTE
+                                // 4. CONTAR MENSAJES ENTRANTES
+                                // =================================================
+
+                                const {
+                                    count: mensajesEntrantesAntes,
+                                    error: errorConteo
+                                } = await supabase
+                                    .from("mensajes")
+                                    .select(
+                                        "id",
+                                        {
+                                            count:
+                                                "exact",
+
+                                            head:
+                                                true
+                                        }
+                                    )
+                                    .eq(
+                                        "conversacion_id",
+                                        conversacion.id
+                                    )
+                                    .eq(
+                                        "direccion",
+                                        "entrante"
+                                    );
+
+                                if (
+                                    errorConteo
+                                ) {
+                                    throw errorConteo;
+                                }
+
+                                const numeroMensaje =
+                                    (mensajesEntrantesAntes || 0) + 1;
+
+                                console.log(
+                                    "Mensaje entrante número:",
+                                    numeroMensaje
+                                );
+
+                                // =================================================
+                                // 5. GUARDAR MENSAJE ENTRANTE
                                 // =================================================
 
                                 const {
@@ -849,7 +828,9 @@ const server = http.createServer(async (req, res) => {
                                     .select()
                                     .single();
 
-                                if (errorMensaje) {
+                                if (
+                                    errorMensaje
+                                ) {
                                     throw errorMensaje;
                                 }
 
@@ -859,7 +840,7 @@ const server = http.createServer(async (req, res) => {
                                 );
 
                                 // =================================================
-                                // 5. ACTUALIZAR ÚLTIMA INTERACCIÓN
+                                // 6. ACTUALIZAR ÚLTIMA INTERACCIÓN
                                 // =================================================
 
                                 const {
@@ -877,15 +858,19 @@ const server = http.createServer(async (req, res) => {
                                         conversacion.id
                                     );
 
-                                if (errorActualizacion) {
+                                if (
+                                    errorActualizacion
+                                ) {
                                     throw errorActualizacion;
                                 }
 
                                 // =================================================
-                                // 6. GUARDAR HISTORIAL
+                                // 7. GUARDAR HISTORIAL
                                 // =================================================
 
-                                if (ticketCreado) {
+                                if (
+                                    ticketCreado
+                                ) {
 
                                     const {
                                         error: errorHistorial
@@ -908,7 +893,9 @@ const server = http.createServer(async (req, res) => {
 
                                         });
 
-                                    if (errorHistorial) {
+                                    if (
+                                        errorHistorial
+                                    ) {
                                         throw errorHistorial;
                                     }
 
@@ -939,7 +926,9 @@ const server = http.createServer(async (req, res) => {
 
                                         });
 
-                                    if (errorHistorial) {
+                                    if (
+                                        errorHistorial
+                                    ) {
                                         throw errorHistorial;
                                     }
 
@@ -949,45 +938,89 @@ const server = http.createServer(async (req, res) => {
                                 }
 
                                 // =================================================
-                                // 7. RESPUESTA AUTOMÁTICA
-                                // =================================================
-                                //
-                                // ESTA ES LA PARTE NUEVA.
-                                //
-                                // Cuando el cliente escribe,
-                                // el sistema le responde automáticamente.
-                                //
+                                // 8. RESPUESTAS AUTOMÁTICAS
                                 // =================================================
 
-                                const respuestaAutomatica =
-                                    "Hola 👋 Gracias por comunicarte con TR Soporte. Recibimos tu mensaje correctamente. En breve un agente de soporte se comunicará con vos.";
+                                let respuestaAutomatica =
+                                    null;
 
-                                try {
+                                // -----------------------------------------
+                                // PRIMER MENSAJE
+                                // -----------------------------------------
 
-                                    await enviarWhatsApp(
-                                        telefono,
+                                if (
+                                    numeroMensaje === 1
+                                ) {
+
+                                    respuestaAutomatica =
+                                        "Hola 👋 Gracias por comunicarte con TR Soporte. Recibimos tu mensaje correctamente. En breve un agente de soporte se comunicará con vos.";
+
+                                }
+
+                                // -----------------------------------------
+                                // SEGUNDO MENSAJE
+                                // -----------------------------------------
+
+                                else if (
+                                    numeroMensaje === 2
+                                ) {
+
+                                    respuestaAutomatica =
+                                        `📋 Tu número de ticket es #${conversacion.numero_ticket}.
+
+Mientras tanto, contanos brevemente cuál es el problema para que podamos ayudarte más rápido. 🛠️
+
+Un agente revisará tu solicitud y se comunicará con vos.`;
+
+                                }
+
+                                // -----------------------------------------
+                                // TERCER MENSAJE EN ADELANTE
+                                // NO RESPONDER
+                                // -----------------------------------------
+
+                                else {
+
+                                    console.log(
+                                        "No se envía respuesta automática. El cliente ya recibió las respuestas iniciales."
+                                    );
+                                }
+
+                                // =================================================
+                                // 9. ENVIAR RESPUESTA AUTOMÁTICA
+                                // =================================================
+
+                                if (
+                                    respuestaAutomatica
+                                ) {
+
+                                    console.log(
+                                        "Enviando respuesta automática..."
+                                    );
+
+                                    const resultadoWhatsApp =
+                                        await enviarWhatsApp(
+                                            telefono,
+                                            respuestaAutomatica
+                                        );
+
+                                    const whatsappRespuestaId =
+                                        resultadoWhatsApp
+                                            ?.messages?.[0]?.id ||
+                                        null;
+
+                                    await guardarMensajeSaliente(
+                                        conversacion,
                                         respuestaAutomatica,
-                                        conversacion.id,
-                                        conversacion.agente_id || null
+                                        null,
+                                        whatsappRespuestaId
                                     );
 
                                     console.log(
                                         "Respuesta automática enviada correctamente."
                                     );
-
-                                } catch (errorRespuesta) {
-
-                                    console.error("");
-                                    console.error(
-                                        "ERROR ENVIANDO RESPUESTA AUTOMÁTICA"
-                                    );
-                                    console.error(
-                                        errorRespuesta
-                                    );
-
-                                    // No hacemos fallar todo el webhook.
-                                    // El mensaje entrante ya fue guardado.
                                 }
+
                             }
                         }
                     }
@@ -1006,14 +1039,17 @@ const server = http.createServer(async (req, res) => {
 
                     res.end(
                         JSON.stringify({
+
                             success:
                                 true
+
                         })
                     );
 
                 } catch (error) {
 
                     console.error("");
+
                     console.error(
                         "========================================="
                     );
@@ -1026,9 +1062,7 @@ const server = http.createServer(async (req, res) => {
                         "========================================="
                     );
 
-                    console.error(
-                        error
-                    );
+                    console.error(error);
 
                     res.writeHead(
                         500,
@@ -1050,6 +1084,7 @@ const server = http.createServer(async (req, res) => {
                         })
                     );
                 }
+
             }
         );
 
@@ -1057,7 +1092,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // =================================================
-    // ENVIAR MENSAJE MANUAL
+    // ENVIAR MENSAJE DE WHATSAPP
     // =================================================
 
     if (
@@ -1120,17 +1155,134 @@ const server = http.createServer(async (req, res) => {
                         return;
                     }
 
+                    // -----------------------------------------
+                    // ENVIAR A WHATSAPP
+                    // -----------------------------------------
+
                     const result =
                         await enviarWhatsApp(
                             to,
-                            message,
-                            conversacionId || null,
-                            agenteId || null
+                            message
                         );
 
-                    // ---------------------------------
+                    // -----------------------------------------
+                    // GUARDAR EN SUPABASE
+                    // -----------------------------------------
+
+                    if (
+                        conversacionId
+                    ) {
+
+                        const whatsappMessageId =
+                            result
+                                ?.messages?.[0]?.id ||
+                            null;
+
+                        const {
+                            data: conversacion,
+                            error: errorConversacion
+                        } = await supabase
+                            .from("conversaciones")
+                            .select("cliente_id")
+                            .eq(
+                                "id",
+                                conversacionId
+                            )
+                            .single();
+
+                        if (
+                            errorConversacion
+                        ) {
+                            throw errorConversacion;
+                        }
+
+                        const {
+                            error: errorMensaje
+                        } = await supabase
+                            .from("mensajes")
+                            .insert({
+
+                                cliente_id:
+                                    conversacion.cliente_id,
+
+                                conversacion_id:
+                                    conversacionId,
+
+                                whatsapp_message_id:
+                                    whatsappMessageId,
+
+                                direccion:
+                                    "saliente",
+
+                                tipo:
+                                    "text",
+
+                                contenido:
+                                    message,
+
+                                estado:
+                                    "enviado"
+
+                            });
+
+                        if (
+                            errorMensaje
+                        ) {
+                            throw errorMensaje;
+                        }
+
+                        const {
+                            error: errorActualizacion
+                        } = await supabase
+                            .from("conversaciones")
+                            .update({
+
+                                ultima_interaccion:
+                                    new Date().toISOString()
+
+                            })
+                            .eq(
+                                "id",
+                                conversacionId
+                            );
+
+                        if (
+                            errorActualizacion
+                        ) {
+                            throw errorActualizacion;
+                        }
+
+                        const {
+                            error: errorHistorial
+                        } = await supabase
+                            .from("ticket_historial")
+                            .insert({
+
+                                conversacion_id:
+                                    conversacionId,
+
+                                agente_id:
+                                    agenteId ||
+                                    null,
+
+                                accion:
+                                    "mensaje_enviado",
+
+                                detalle:
+                                    "El agente envió un mensaje al cliente por WhatsApp."
+
+                            });
+
+                        if (
+                            errorHistorial
+                        ) {
+                            throw errorHistorial;
+                        }
+                    }
+
+                    // -----------------------------------------
                     // RESPUESTA
-                    // ---------------------------------
+                    // -----------------------------------------
 
                     res.writeHead(
                         200,
@@ -1158,9 +1310,7 @@ const server = http.createServer(async (req, res) => {
                         "Error enviando mensaje:"
                     );
 
-                    console.error(
-                        error
-                    );
+                    console.error(error);
 
                     res.writeHead(
                         500,
@@ -1173,15 +1323,13 @@ const server = http.createServer(async (req, res) => {
                     res.end(
                         JSON.stringify({
 
-                            success:
-                                false,
-
                             error:
                                 error.message
 
                         })
                     );
                 }
+
             }
         );
 
@@ -1224,9 +1372,7 @@ const server = http.createServer(async (req, res) => {
         }
     );
 
-    res.end(
-        "Not Found"
-    );
+    res.end("Not Found");
 
 });
 
