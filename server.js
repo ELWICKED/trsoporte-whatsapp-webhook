@@ -1109,8 +1109,7 @@ const server =
                                     errorConversacion
                                 ) {
 
-                                    throw
-                                        errorConversacion;
+throw errorConversacion;
 
                                 }
 
@@ -1164,8 +1163,7 @@ const server =
                                     errorMensaje
                                 ) {
 
-                                    throw
-                                        errorMensaje;
+throw errorMensaje;
 
                                 }
 
@@ -1201,8 +1199,7 @@ const server =
                                     errorActualizacion
                                 ) {
 
-                                    throw
-                                        errorActualizacion;
+throw errorActualizacion;
 
                                 }
 
@@ -1242,8 +1239,7 @@ const server =
                                     errorHistorial
                                 ) {
 
-                                    throw
-                                        errorHistorial;
+throw errorHistorial;
 
                                 }
 
