@@ -1,0 +1,12 @@
+{
+  "name": "trsoporte-whatsapp-webhook",
+  "version": "1.0.0",
+  "description": "Webhook para WhatsApp Cloud API de TR Soporte",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}
