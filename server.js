@@ -2,23 +2,49 @@ const http = require("http");
 const url = require("url");
 
 const PORT = process.env.PORT || 3000;
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "TRSOporteWebhook2026";
+
+const VERIFY_TOKEN = process.env.META_VERIFY_TOKEN;
+const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
+const PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID;
 
 const server = http.createServer((req, res) => {
     const parsedUrl = url.parse(req.url, true);
 
-    // Verificación del Webhook de Meta
+    // ==========================================
+    // PÁGINA PRINCIPAL
+    // ==========================================
+    if (req.method === "GET" && parsedUrl.pathname === "/") {
+        res.writeHead(200, {
+            "Content-Type": "text/plain"
+        });
+
+        res.end("TR Soporte - WhatsApp Webhook funcionando.");
+        return;
+    }
+
+    // ==========================================
+    // VERIFICACIÓN DEL WEBHOOK DE META
+    // ==========================================
     if (req.method === "GET" && parsedUrl.pathname === "/webhook") {
+
         const mode = parsedUrl.query["hub.mode"];
         const token = parsedUrl.query["hub.verify_token"];
         const challenge = parsedUrl.query["hub.challenge"];
 
         if (mode === "subscribe" && token === VERIFY_TOKEN) {
+
             console.log("Webhook verificado correctamente.");
-            res.writeHead(200, { "Content-Type": "text/plain" });
+
+            res.writeHead(200, {
+                "Content-Type": "text/plain"
+            });
+
             res.end(challenge);
+
         } else {
+
             console.log("Error de verificación del Webhook.");
+
             res.writeHead(403);
             res.end("Forbidden");
         }
@@ -26,8 +52,11 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // Recepción de eventos de WhatsApp
+    // ==========================================
+    // RECEPCIÓN DE EVENTOS DE WHATSAPP
+    // ==========================================
     if (req.method === "POST" && parsedUrl.pathname === "/webhook") {
+
         let body = "";
 
         req.on("data", chunk => {
@@ -35,22 +64,109 @@ const server = http.createServer((req, res) => {
         });
 
         req.on("end", () => {
+
             console.log("Evento recibido de WhatsApp:");
             console.log(body);
 
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ status: "received" }));
+            res.writeHead(200, {
+                "Content-Type": "application/json"
+            });
+
+            res.end(JSON.stringify({
+                status: "received"
+            }));
         });
 
         return;
     }
 
-    // Página principal
-    if (req.method === "GET" && parsedUrl.pathname === "/") {
-        res.writeHead(200, { "Content-Type": "text/plain" });
-        res.end("TR Soporte - WhatsApp Webhook funcionando.");
+    // ==========================================
+    // ENVIAR MENSAJE DE WHATSAPP
+    // ==========================================
+    if (req.method === "POST" && parsedUrl.pathname === "/send-message") {
+
+        let body = "";
+
+        req.on("data", chunk => {
+            body += chunk.toString();
+        });
+
+        req.on("end", async () => {
+
+            try {
+
+                const data = JSON.parse(body);
+
+                const to = data.to;
+                const message = data.message;
+
+                if (!to || !message) {
+
+                    res.writeHead(400, {
+                        "Content-Type": "application/json"
+                    });
+
+                    res.end(JSON.stringify({
+                        error: "Faltan los campos 'to' y 'message'."
+                    }));
+
+                    return;
+                }
+
+                const whatsappUrl =
+                    `https://graph.facebook.com/v23.0/${PHONE_NUMBER_ID}/messages`;
+
+                const response = await fetch(whatsappUrl, {
+
+                    method: "POST",
+
+                    headers: {
+                        "Authorization": `Bearer ${ACCESS_TOKEN}`,
+                        "Content-Type": "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        messaging_product: "whatsapp",
+                        to: to,
+                        type: "text",
+                        text: {
+                            body: message
+                        }
+                    })
+                });
+
+                const result = await response.json();
+
+                console.log("Respuesta de Meta:");
+                console.log(result);
+
+                res.writeHead(response.status, {
+                    "Content-Type": "application/json"
+                });
+
+                res.end(JSON.stringify(result));
+
+            } catch (error) {
+
+                console.error("Error enviando mensaje:");
+                console.error(error);
+
+                res.writeHead(500, {
+                    "Content-Type": "application/json"
+                });
+
+                res.end(JSON.stringify({
+                    error: error.message
+                }));
+            }
+        });
+
         return;
     }
+
+    // ==========================================
+    // RUTA NO ENCONTRADA
+    // ==========================================
 
     res.writeHead(404);
     res.end("Not Found");
