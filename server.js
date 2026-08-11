@@ -105,8 +105,8 @@ const server = http.createServer((req, res) => {
                     return;
                 }
 
-                const whatsappUrl =
-                    `https://graph.facebook.com/v23.0/${PHONE_NUMBER_ID}/messages`;
+const whatsappUrl =
+    `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`;
 
                 const response = await fetch(whatsappUrl, {
                     method: "POST",
