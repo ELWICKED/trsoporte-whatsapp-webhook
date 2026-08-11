@@ -9,12 +9,20 @@ const PORT = process.env.PORT || 3000;
 // VARIABLES DE ENTORNO
 // =====================================================
 
-const VERIFY_TOKEN = process.env.META_VERIFY_TOKEN;
-const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
-const PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID;
+const VERIFY_TOKEN =
+    process.env.META_VERIFY_TOKEN;
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
+const ACCESS_TOKEN =
+    process.env.META_ACCESS_TOKEN;
+
+const PHONE_NUMBER_ID =
+    process.env.META_PHONE_NUMBER_ID;
+
+const SUPABASE_URL =
+    process.env.SUPABASE_URL;
+
+const SUPABASE_SECRET_KEY =
+    process.env.SUPABASE_SECRET_KEY;
 
 // =====================================================
 // SUPABASE
@@ -25,53 +33,173 @@ const supabase = createClient(
     SUPABASE_SECRET_KEY
 );
 
-console.log("Cliente de Supabase inicializado.");
+console.log(
+    "Cliente de Supabase inicializado."
+);
+
+// =====================================================
+// FUNCIONES GENERALES
+// =====================================================
+
+function responderJSON(
+    res,
+    statusCode,
+    data
+) {
+    res.writeHead(
+        statusCode,
+        {
+            "Content-Type":
+                "application/json; charset=utf-8"
+        }
+    );
+
+    res.end(
+        JSON.stringify(data)
+    );
+}
+
+// =====================================================
+// LEER BODY JSON
+// =====================================================
+
+function leerBody(req) {
+
+    return new Promise(
+        (resolve, reject) => {
+
+            let body = "";
+
+            req.on(
+                "data",
+                chunk => {
+                    body +=
+                        chunk.toString();
+                }
+            );
+
+            req.on(
+                "end",
+                () => {
+
+                    if (!body) {
+                        resolve({});
+                        return;
+                    }
+
+                    try {
+
+                        const data =
+                            JSON.parse(body);
+
+                        resolve(data);
+
+                    } catch (error) {
+
+                        reject(
+                            new Error(
+                                "JSON inválido."
+                            )
+                        );
+                    }
+                }
+            );
+
+            req.on(
+                "error",
+                error => {
+                    reject(error);
+                }
+            );
+        }
+    );
+}
+
+// =====================================================
+// OBTENER ID DESDE /tickets/:id
+// =====================================================
+
+function obtenerIdTicket(
+    pathname
+) {
+
+    const partes =
+        pathname.split("/")
+            .filter(Boolean);
+
+    if (
+        partes.length !== 2 ||
+        partes[0] !== "tickets"
+    ) {
+        return null;
+    }
+
+    const id =
+        Number(partes[1]);
+
+    if (
+        !Number.isInteger(id) ||
+        id <= 0
+    ) {
+        return null;
+    }
+
+    return id;
+}
 
 // =====================================================
 // FUNCIÓN: ENVIAR MENSAJE WHATSAPP
 // =====================================================
 
-async function enviarWhatsApp(to, message) {
+async function enviarWhatsApp(
+    to,
+    message
+) {
 
     const whatsappUrl =
         `https://graph.facebook.com/v26.0/${PHONE_NUMBER_ID}/messages`;
 
-    const response = await fetch(
-        whatsappUrl,
-        {
-            method: "POST",
+    const response =
+        await fetch(
+            whatsappUrl,
+            {
+                method: "POST",
 
-            headers: {
-                "Authorization":
-                    `Bearer ${ACCESS_TOKEN}`,
+                headers: {
+                    "Authorization":
+                        `Bearer ${ACCESS_TOKEN}`,
 
-                "Content-Type":
-                    "application/json"
-            },
+                    "Content-Type":
+                        "application/json"
+                },
 
-            body: JSON.stringify({
+                body: JSON.stringify({
 
-                messaging_product:
-                    "whatsapp",
+                    messaging_product:
+                        "whatsapp",
 
-                to:
-                    to,
+                    to:
+                        to,
 
-                type:
-                    "text",
+                    type:
+                        "text",
 
-                text: {
-                    body:
-                        message
-                }
+                    text: {
+                        body:
+                            message
+                    }
 
-            })
-        }
+                })
+            }
+        );
+
+    const result =
+        await response.json();
+
+    console.log(
+        "Respuesta de Meta:",
+        result
     );
-
-    const result = await response.json();
-
-    console.log("Respuesta de Meta:", result);
 
     if (!response.ok) {
 
@@ -94,6 +222,10 @@ async function guardarMensajeSaliente(
     agenteId = null,
     whatsappMessageId = null
 ) {
+
+    // =================================================
+    // GUARDAR MENSAJE
+    // =================================================
 
     const {
         error: errorMensaje
@@ -127,7 +259,9 @@ async function guardarMensajeSaliente(
         throw errorMensaje;
     }
 
-    // Actualizar última interacción
+    // =================================================
+    // ACTUALIZAR CONVERSACIÓN
+    // =================================================
 
     const {
         error: errorActualizacion
@@ -148,7 +282,9 @@ async function guardarMensajeSaliente(
         throw errorActualizacion;
     }
 
-    // Guardar historial
+    // =================================================
+    // HISTORIAL
+    // =================================================
 
     const {
         error: errorHistorial
@@ -175,207 +311,411 @@ async function guardarMensajeSaliente(
 }
 
 // =====================================================
+// FUNCIÓN: OBTENER TICKET COMPLETO
+// =====================================================
+
+async function obtenerTicketCompleto(
+    conversacionId
+) {
+
+    // =================================================
+    // TICKET + CLIENTE
+    // =================================================
+
+    const {
+        data: ticket,
+        error: errorTicket
+    } = await supabase
+        .from("conversaciones")
+        .select("*")
+        .eq(
+            "id",
+            conversacionId
+        )
+        .single();
+
+    if (errorTicket) {
+        throw errorTicket;
+    }
+
+    if (!ticket) {
+        throw new Error(
+            "Ticket no encontrado."
+        );
+    }
+
+    // =================================================
+    // CLIENTE
+    // =================================================
+
+    const {
+        data: cliente,
+        error: errorCliente
+    } = await supabase
+        .from("clientes")
+        .select("*")
+        .eq(
+            "id",
+            ticket.cliente_id
+        )
+        .maybeSingle();
+
+    if (errorCliente) {
+        throw errorCliente;
+    }
+
+    // =================================================
+    // AGENTE
+    // =================================================
+
+    let agente = null;
+
+    if (ticket.agente_id) {
+
+        const {
+            data: agenteData,
+            error: errorAgente
+        } = await supabase
+            .from("agentes")
+            .select("*")
+            .eq(
+                "id",
+                ticket.agente_id
+            )
+            .maybeSingle();
+
+        if (errorAgente) {
+            throw errorAgente;
+        }
+
+        agente =
+            agenteData;
+    }
+
+    // =================================================
+    // MENSAJES
+    // =================================================
+
+    const {
+        data: mensajes,
+        error: errorMensajes
+    } = await supabase
+        .from("mensajes")
+        .select("*")
+        .eq(
+            "conversacion_id",
+            conversacionId
+        )
+        .order(
+            "id",
+            {
+                ascending: true
+            }
+        );
+
+    if (errorMensajes) {
+        throw errorMensajes;
+    }
+
+    // =================================================
+    // HISTORIAL
+    // =================================================
+
+    const {
+        data: historial,
+        error: errorHistorial
+    } = await supabase
+        .from("ticket_historial")
+        .select("*")
+        .eq(
+            "conversacion_id",
+            conversacionId
+        )
+        .order(
+            "id",
+            {
+                ascending: true
+            }
+        );
+
+    if (errorHistorial) {
+        throw errorHistorial;
+    }
+
+    // =================================================
+    // DEVOLVER
+    // =================================================
+
+    return {
+
+        ...ticket,
+
+        cliente:
+            cliente || null,
+
+        agente:
+            agente || null,
+
+        mensajes:
+            mensajes || [],
+
+        historial:
+            historial || []
+    };
+}
+
+// =====================================================
+// FUNCIÓN: REGISTRAR HISTORIAL
+// =====================================================
+
+async function registrarHistorial(
+    conversacionId,
+    agenteId,
+    accion,
+    detalle
+) {
+
+    const {
+        error
+    } = await supabase
+        .from("ticket_historial")
+        .insert({
+
+            conversacion_id:
+                conversacionId,
+
+            agente_id:
+                agenteId || null,
+
+            accion:
+                accion,
+
+            detalle:
+                detalle
+        });
+
+    if (error) {
+        throw error;
+    }
+}
+
+// =====================================================
+// FUNCIÓN: OBTENER AGENTE
+// =====================================================
+
+async function obtenerAgente(
+    agenteId
+) {
+
+    const {
+        data,
+        error
+    } = await supabase
+        .from("agentes")
+        .select("*")
+        .eq(
+            "id",
+            agenteId
+        )
+        .maybeSingle();
+
+    if (error) {
+        throw error;
+    }
+
+    return data;
+}
+
+// =====================================================
 // SERVIDOR
 // =====================================================
 
-const server = http.createServer(async (req, res) => {
+const server =
+    http.createServer(
+        async (req, res) => {
 
-    const parsedUrl =
-        url.parse(req.url, true);
+            const parsedUrl =
+                url.parse(
+                    req.url,
+                    true
+                );
 
-    // =================================================
-    // HEALTH CHECK
-    // =================================================
+            const pathname =
+                parsedUrl.pathname;
 
-    if (
-        req.method === "GET" &&
-        parsedUrl.pathname === "/health"
-    ) {
+            // =================================================
+            // HEALTH CHECK
+            // =================================================
 
-        try {
+            if (
+                req.method === "GET" &&
+                pathname === "/health"
+            ) {
 
-            const {
-                error
-            } = await supabase
-                .from("agentes")
-                .select("id")
-                .limit(1);
+                try {
 
-            if (error) {
+                    const {
+                        error
+                    } = await supabase
+                        .from("agentes")
+                        .select("id")
+                        .limit(1);
 
-                res.writeHead(
-                    200,
-                    {
-                        "Content-Type":
-                            "application/json"
+                    if (error) {
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+
+                                servidor:
+                                    "OK",
+
+                                supabase:
+                                    "ERROR",
+
+                                estado:
+                                    "DEGRADED",
+
+                                error:
+                                    error.message
+
+                            }
+                        );
+
+                        return;
                     }
-                );
 
-                res.end(
-                    JSON.stringify({
+                    responderJSON(
+                        res,
+                        200,
+                        {
 
-                        servidor:
-                            "OK",
+                            servidor:
+                                "OK",
 
-                        supabase:
-                            "ERROR",
+                            supabase:
+                                "OK",
 
-                        estado:
-                            "DEGRADED",
+                            estado:
+                                "ONLINE"
 
-                        error:
-                            error.message
+                        }
+                    );
 
-                    })
-                );
+                } catch (error) {
+
+                    responderJSON(
+                        res,
+                        500,
+                        {
+
+                            servidor:
+                                "OK",
+
+                            supabase:
+                                "ERROR",
+
+                            estado:
+                                "ERROR",
+
+                            error:
+                                error.message
+
+                        }
+                    );
+                }
 
                 return;
             }
 
-            res.writeHead(
-                200,
-                {
-                    "Content-Type":
-                        "application/json"
+            // =================================================
+            // VERIFICACIÓN WEBHOOK META
+            // =================================================
+
+            if (
+                req.method === "GET" &&
+                pathname === "/webhook"
+            ) {
+
+                const mode =
+                    parsedUrl.query[
+                        "hub.mode"
+                    ];
+
+                const token =
+                    parsedUrl.query[
+                        "hub.verify_token"
+                    ];
+
+                const challenge =
+                    parsedUrl.query[
+                        "hub.challenge"
+                    ];
+
+                console.log(
+                    "Solicitud de verificación de Meta."
+                );
+
+                if (
+                    mode === "subscribe" &&
+                    token === VERIFY_TOKEN
+                ) {
+
+                    console.log(
+                        "Webhook de Meta verificado correctamente."
+                    );
+
+                    res.writeHead(
+                        200,
+                        {
+                            "Content-Type":
+                                "text/plain"
+                        }
+                    );
+
+                    res.end(
+                        challenge
+                    );
+
+                } else {
+
+                    console.log(
+                        "Token de verificación incorrecto."
+                    );
+
+                    res.writeHead(
+                        403,
+                        {
+                            "Content-Type":
+                                "text/plain"
+                        }
+                    );
+
+                    res.end(
+                        "Forbidden"
+                    );
                 }
-            );
 
-            res.end(
-                JSON.stringify({
-
-                    servidor:
-                        "OK",
-
-                    supabase:
-                        "OK",
-
-                    estado:
-                        "ONLINE"
-
-                })
-            );
-
-        } catch (error) {
-
-            res.writeHead(
-                500,
-                {
-                    "Content-Type":
-                        "application/json"
-                }
-            );
-
-            res.end(
-                JSON.stringify({
-
-                    servidor:
-                        "OK",
-
-                    supabase:
-                        "ERROR",
-
-                    estado:
-                        "ERROR",
-
-                    error:
-                        error.message
-
-                })
-            );
-        }
-
-        return;
-    }
-
-    // =================================================
-    // VERIFICACIÓN DEL WEBHOOK DE META
-    // =================================================
-
-    if (
-        req.method === "GET" &&
-        parsedUrl.pathname === "/webhook"
-    ) {
-
-        const mode =
-            parsedUrl.query["hub.mode"];
-
-        const token =
-            parsedUrl.query["hub.verify_token"];
-
-        const challenge =
-            parsedUrl.query["hub.challenge"];
-
-        console.log(
-            "Solicitud de verificación de Meta."
-        );
-
-        if (
-            mode === "subscribe" &&
-            token === VERIFY_TOKEN
-        ) {
-
-            console.log(
-                "Webhook de Meta verificado correctamente."
-            );
-
-            res.writeHead(
-                200,
-                {
-                    "Content-Type":
-                        "text/plain"
-                }
-            );
-
-            res.end(challenge);
-
-        } else {
-
-            console.log(
-                "Token de verificación incorrecto."
-            );
-
-            res.writeHead(
-                403,
-                {
-                    "Content-Type":
-                        "text/plain"
-                }
-            );
-
-            res.end("Forbidden");
-        }
-
-        return;
-    }
-
-    // =================================================
-    // RECIBIR WEBHOOK DE WHATSAPP
-    // =================================================
-
-    if (
-        req.method === "POST" &&
-        parsedUrl.pathname === "/webhook"
-    ) {
-
-        let body = "";
-
-        req.on(
-            "data",
-            chunk => {
-                body += chunk.toString();
+                return;
             }
-        );
 
-        req.on(
-            "end",
-            async () => {
+            // =================================================
+            // RECIBIR WEBHOOK WHATSAPP
+            // =================================================
+
+            if (
+                req.method === "POST" &&
+                pathname === "/webhook"
+            ) {
 
                 try {
 
                     const data =
-                        JSON.parse(body);
+                        await leerBody(req);
 
                     console.log("");
+
                     console.log(
                         "========================================="
                     );
@@ -397,7 +737,7 @@ const server = http.createServer(async (req, res) => {
                     );
 
                     // -----------------------------------------
-                    // RECORRER ENTRIES
+                    // ENTRIES
                     // -----------------------------------------
 
                     const entries =
@@ -424,15 +764,16 @@ const server = http.createServer(async (req, res) => {
                             const messages =
                                 value.messages || [];
 
-                            // -------------------------------------
-                            // PROCESAR CADA MENSAJE
-                            // -------------------------------------
+                            // ---------------------------------
+                            // MENSAJES
+                            // ---------------------------------
 
                             for (
                                 const message of messages
                             ) {
 
                                 console.log("");
+
                                 console.log(
                                     "-----------------------------------------"
                                 );
@@ -446,10 +787,12 @@ const server = http.createServer(async (req, res) => {
                                 );
 
                                 const whatsappMessageId =
-                                    message.id || null;
+                                    message.id ||
+                                    null;
 
                                 const telefono =
-                                    message.from || null;
+                                    message.from ||
+                                    null;
 
                                 const tipo =
                                     message.type ||
@@ -469,6 +812,7 @@ const server = http.createServer(async (req, res) => {
 
                                     contenido =
                                         message.text.body;
+
                                 }
 
                                 // ---------------------------------
@@ -515,7 +859,7 @@ const server = http.createServer(async (req, res) => {
                                 }
 
                                 // =================================================
-                                // 0. EVITAR MENSAJES DUPLICADOS
+                                // EVITAR DUPLICADOS
                                 // =================================================
 
                                 if (
@@ -554,7 +898,7 @@ const server = http.createServer(async (req, res) => {
                                 }
 
                                 // =================================================
-                                // 1. BUSCAR CLIENTE
+                                // BUSCAR CLIENTE
                                 // =================================================
 
                                 let cliente =
@@ -579,7 +923,7 @@ const server = http.createServer(async (req, res) => {
                                 }
 
                                 // ---------------------------------
-                                // CLIENTE EXISTENTE
+                                // EXISTENTE
                                 // ---------------------------------
 
                                 if (
@@ -597,7 +941,7 @@ const server = http.createServer(async (req, res) => {
                                 }
 
                                 // ---------------------------------
-                                // CLIENTE NUEVO
+                                // NUEVO
                                 // ---------------------------------
 
                                 else {
@@ -645,7 +989,7 @@ const server = http.createServer(async (req, res) => {
                                 }
 
                                 // =================================================
-                                // 2. BUSCAR CONVERSACIÓN ABIERTA
+                                // BUSCAR CONVERSACIÓN ABIERTA
                                 // =================================================
 
                                 const {
@@ -698,7 +1042,7 @@ const server = http.createServer(async (req, res) => {
                                 }
 
                                 // =================================================
-                                // 3. CREAR CONVERSACIÓN SI NO EXISTE
+                                // CREAR CONVERSACIÓN
                                 // =================================================
 
                                 let ticketCreado =
@@ -752,7 +1096,7 @@ const server = http.createServer(async (req, res) => {
                                 }
 
                                 // =================================================
-                                // 4. CONTAR MENSAJES ENTRANTES
+                                // CONTAR MENSAJES ENTRANTES
                                 // =================================================
 
                                 const {
@@ -786,7 +1130,10 @@ const server = http.createServer(async (req, res) => {
                                 }
 
                                 const numeroMensaje =
-                                    (mensajesEntrantesAntes || 0) + 1;
+                                    (
+                                        mensajesEntrantesAntes ||
+                                        0
+                                    ) + 1;
 
                                 console.log(
                                     "Mensaje entrante número:",
@@ -794,7 +1141,7 @@ const server = http.createServer(async (req, res) => {
                                 );
 
                                 // =================================================
-                                // 5. GUARDAR MENSAJE ENTRANTE
+                                // GUARDAR MENSAJE ENTRANTE
                                 // =================================================
 
                                 const {
@@ -841,7 +1188,7 @@ const server = http.createServer(async (req, res) => {
                                 );
 
                                 // =================================================
-                                // 6. ACTUALIZAR ÚLTIMA INTERACCIÓN
+                                // ACTUALIZAR INTERACCIÓN
                                 // =================================================
 
                                 const {
@@ -866,39 +1213,25 @@ const server = http.createServer(async (req, res) => {
                                 }
 
                                 // =================================================
-                                // 7. GUARDAR HISTORIAL
+                                // HISTORIAL
                                 // =================================================
 
                                 if (
                                     ticketCreado
                                 ) {
 
-                                    const {
-                                        error: errorHistorial
-                                    } = await supabase
-                                        .from("ticket_historial")
-                                        .insert({
+                                    await registrarHistorial(
 
-                                            conversacion_id:
-                                                conversacion.id,
+                                        conversacion.id,
 
-                                            agente_id:
-                                                conversacion.agente_id ||
-                                                null,
+                                        conversacion.agente_id ||
+                                        null,
 
-                                            accion:
-                                                "ticket_creado",
+                                        "ticket_creado",
 
-                                            detalle:
-                                                "Ticket creado automáticamente desde WhatsApp."
+                                        "Ticket creado automáticamente desde WhatsApp."
 
-                                        });
-
-                                    if (
-                                        errorHistorial
-                                    ) {
-                                        throw errorHistorial;
-                                    }
+                                    );
 
                                     console.log(
                                         "Historial: ticket_creado"
@@ -906,32 +1239,18 @@ const server = http.createServer(async (req, res) => {
 
                                 } else {
 
-                                    const {
-                                        error: errorHistorial
-                                    } = await supabase
-                                        .from("ticket_historial")
-                                        .insert({
+                                    await registrarHistorial(
 
-                                            conversacion_id:
-                                                conversacion.id,
+                                        conversacion.id,
 
-                                            agente_id:
-                                                conversacion.agente_id ||
-                                                null,
+                                        conversacion.agente_id ||
+                                        null,
 
-                                            accion:
-                                                "mensaje_recibido",
+                                        "mensaje_recibido",
 
-                                            detalle:
-                                                "El cliente envió un nuevo mensaje por WhatsApp."
+                                        "El cliente envió un nuevo mensaje por WhatsApp."
 
-                                        });
-
-                                    if (
-                                        errorHistorial
-                                    ) {
-                                        throw errorHistorial;
-                                    }
+                                    );
 
                                     console.log(
                                         "Historial: mensaje_recibido"
@@ -939,7 +1258,7 @@ const server = http.createServer(async (req, res) => {
                                 }
 
                                 // =================================================
-                                // 8. RESPUESTAS AUTOMÁTICAS
+                                // RESPUESTAS AUTOMÁTICAS
                                 // =================================================
 
                                 let respuestaAutomatica =
@@ -955,7 +1274,6 @@ const server = http.createServer(async (req, res) => {
 
                                     respuestaAutomatica =
                                         "Hola 👋 Gracias por comunicarte con TR Soporte. Recibimos tu mensaje correctamente.\n\nMientras tanto, contanos brevemente cuál es el problema que estás teniendo para que podamos ayudarte mejor. 🛠️";
-
                                 }
 
                                 // -----------------------------------------
@@ -967,27 +1285,22 @@ const server = http.createServer(async (req, res) => {
                                 ) {
 
                                     respuestaAutomatica =
-                                        `📋 Tu número de caso es #${conversacion.numero_ticket}.
-
-Gracias por la información. Un agente de soporte revisará tu solicitud y se comunicará con vos.
-
-Por favor, aguardá el contacto del agente.`;
-
+                                        `📋 Tu número de caso es #${conversacion.numero_ticket}.\n\nGracias por la información. Un agente de soporte revisará tu solicitud y se comunicará con vos.\n\nPor favor, aguardá el contacto del agente.`;
                                 }
 
                                 // -----------------------------------------
-                                // TERCER MENSAJE EN ADELANTE
+                                // TERCERO EN ADELANTE
                                 // -----------------------------------------
 
                                 else {
 
                                     console.log(
-                                        "No se envía respuesta automática. El cliente ya recibió las respuestas iniciales y el caso está esperando al agente."
+                                        "No se envía respuesta automática."
                                     );
                                 }
 
                                 // =================================================
-                                // 9. ENVIAR RESPUESTA AUTOMÁTICA
+                                // ENVIAR RESPUESTA
                                 // =================================================
 
                                 if (
@@ -1010,10 +1323,15 @@ Por favor, aguardá el contacto del agente.`;
                                         null;
 
                                     await guardarMensajeSaliente(
+
                                         conversacion,
+
                                         respuestaAutomatica,
+
                                         null,
+
                                         whatsappRespuestaId
+
                                     );
 
                                     console.log(
@@ -1024,30 +1342,19 @@ Por favor, aguardá el contacto del agente.`;
                         }
                     }
 
-                    // =================================================
-                    // RESPONDER A META
-                    // =================================================
-
-                    res.writeHead(
+                    responderJSON(
+                        res,
                         200,
                         {
-                            "Content-Type":
-                                "application/json"
-                        }
-                    );
-
-                    res.end(
-                        JSON.stringify({
-
                             success:
                                 true
-
-                        })
+                        }
                     );
 
                 } catch (error) {
 
                     console.error("");
+
                     console.error(
                         "========================================="
                     );
@@ -1062,16 +1369,10 @@ Por favor, aguardá el contacto del agente.`;
 
                     console.error(error);
 
-                    res.writeHead(
+                    responderJSON(
+                        res,
                         500,
                         {
-                            "Content-Type":
-                                "application/json"
-                        }
-                    );
-
-                    res.end(
-                        JSON.stringify({
 
                             success:
                                 false,
@@ -1079,460 +1380,921 @@ Por favor, aguardá el contacto del agente.`;
                             error:
                                 error.message
 
-                        })
+                        }
                     );
                 }
-            }
-        );
-
-        return;
-    }
-
-    // =================================================
-    // LISTAR TICKETS ABIERTOS
-    // =================================================
-
-    if (
-        req.method === "GET" &&
-        parsedUrl.pathname === "/tickets"
-    ) {
-
-        try {
-
-            console.log(
-                "Solicitud recibida: GET /tickets"
-            );
-
-            const {
-                data: tickets,
-                error
-            } = await supabase
-                .from("conversaciones")
-                .select(`
-                    id,
-                    numero_ticket,
-                    estado,
-                    prioridad,
-                    categoria,
-                    ultima_interaccion,
-                    creado_en,
-                    cerrado_en,
-                    cliente:clientes (
-                        id,
-                        nombre,
-                        telefono,
-                        empresa
-                    ),
-                    agente:agentes (
-                        id,
-                        nombre
-                    )
-                `)
-                .eq(
-                    "estado",
-                    "abierta"
-                )
-                .order(
-                    "ultima_interaccion",
-                    {
-                        ascending:
-                            false
-                    }
-                );
-
-            if (
-                error
-            ) {
-                throw error;
-            }
-
-            console.log(
-                "Tickets encontrados:",
-                tickets?.length || 0
-            );
-
-            res.writeHead(
-                200,
-                {
-                    "Content-Type":
-                        "application/json"
-                }
-            );
-
-            res.end(
-                JSON.stringify({
-
-                    success:
-                        true,
-
-                    tickets:
-                        tickets || []
-
-                })
-            );
-
-        } catch (error) {
-
-            console.error("");
-            console.error(
-                "========================================="
-            );
-
-            console.error(
-                "ERROR OBTENIENDO TICKETS"
-            );
-
-            console.error(
-                "========================================="
-            );
-
-            console.error(error);
-
-            res.writeHead(
-                500,
-                {
-                    "Content-Type":
-                        "application/json"
-                }
-            );
-
-            res.end(
-                JSON.stringify({
-
-                    success:
-                        false,
-
-                    error:
-                        error.message
-
-                })
-            );
-        }
-
-        return;
-    }
-
-    // =================================================
-    // OBTENER TICKET COMPLETO
-    // =================================================
-
-    if (
-        req.method === "GET" &&
-        parsedUrl.pathname.startsWith("/tickets/")
-    ) {
-
-        try {
-
-            console.log(
-                "Solicitud recibida:",
-                req.method,
-                parsedUrl.pathname
-            );
-
-            // -----------------------------------------
-            // OBTENER ID
-            // -----------------------------------------
-
-            const partes =
-                parsedUrl.pathname.split("/");
-
-            const idTexto =
-                partes[2];
-
-            const conversacionId =
-                parseInt(
-                    idTexto,
-                    10
-                );
-
-            if (
-                !idTexto ||
-                isNaN(conversacionId)
-            ) {
-
-                res.writeHead(
-                    400,
-                    {
-                        "Content-Type":
-                            "application/json"
-                    }
-                );
-
-                res.end(
-                    JSON.stringify({
-
-                        success:
-                            false,
-
-                        error:
-                            "El ID del ticket no es válido."
-
-                    })
-                );
 
                 return;
             }
 
-            console.log(
-                "ID de conversación:",
-                conversacionId
-            );
-
             // =================================================
-            // BUSCAR CONVERSACIÓN
+            // LISTAR TICKETS
             // =================================================
-
-            const {
-                data: conversacion,
-                error: errorConversacion
-            } = await supabase
-                .from("conversaciones")
-                .select(`
-                    id,
-                    cliente_id,
-                    agente_id,
-                    estado,
-                    ultima_interaccion,
-                    creado_en,
-                    numero_ticket,
-                    prioridad,
-                    categoria,
-                    cerrado_en,
-                    calificacion,
-                    comentario_calificacion,
-                    calificado_en,
-                    cliente:clientes (
-                        id,
-                        telefono,
-                        nombre,
-                        empresa,
-                        activo,
-                        baja_comunicaciones,
-                        fecha_alta,
-                        ultima_interaccion
-                    ),
-                    agente:agentes (
-                        id,
-                        nombre,
-                        rol,
-                        area,
-                        activo
-                    )
-                `)
-                .eq(
-                    "id",
-                    conversacionId
-                )
-                .single();
 
             if (
-                errorConversacion
+                req.method === "GET" &&
+                pathname === "/tickets"
             ) {
 
-                if (
-                    errorConversacion.code === "PGRST116"
-                ) {
+                try {
 
-                    res.writeHead(
-                        404,
+                    const {
+                        data: conversaciones,
+                        error
+                    } = await supabase
+                        .from("conversaciones")
+                        .select("*")
+                        .order(
+                            "ultima_interaccion",
+                            {
+                                ascending:
+                                    false
+                            }
+                        );
+
+                    if (error) {
+                        throw error;
+                    }
+
+                    const tickets =
+                        [];
+
+                    for (
+                        const conversacion
+                        of conversaciones || []
+                    ) {
+
+                        const {
+                            data: cliente,
+                            error: errorCliente
+                        } = await supabase
+                            .from("clientes")
+                            .select("*")
+                            .eq(
+                                "id",
+                                conversacion.cliente_id
+                            )
+                            .maybeSingle();
+
+                        if (errorCliente) {
+                            throw errorCliente;
+                        }
+
+                        let agente =
+                            null;
+
+                        if (
+                            conversacion.agente_id
+                        ) {
+
+                            const {
+                                data: agenteData,
+                                error: errorAgente
+                            } = await supabase
+                                .from("agentes")
+                                .select("*")
+                                .eq(
+                                    "id",
+                                    conversacion.agente_id
+                                )
+                                .maybeSingle();
+
+                            if (errorAgente) {
+                                throw errorAgente;
+                            }
+
+                            agente =
+                                agenteData;
+                        }
+
+                        tickets.push({
+
+                            id:
+                                conversacion.id,
+
+                            numero_ticket:
+                                conversacion.numero_ticket,
+
+                            estado:
+                                conversacion.estado,
+
+                            prioridad:
+                                conversacion.prioridad,
+
+                            categoria:
+                                conversacion.categoria,
+
+                            ultima_interaccion:
+                                conversacion.ultima_interaccion,
+
+                            creado_en:
+                                conversacion.creado_en,
+
+                            cerrado_en:
+                                conversacion.cerrado_en,
+
+                            cliente_id:
+                                conversacion.cliente_id,
+
+                            cliente_nombre:
+                                cliente?.nombre ||
+                                null,
+
+                            cliente_telefono:
+                                cliente?.telefono ||
+                                null,
+
+                            cliente_empresa:
+                                cliente?.empresa ||
+                                null,
+
+                            agente_id:
+                                conversacion.agente_id ||
+                                null,
+
+                            agente_nombre:
+                                agente?.nombre ||
+                                null,
+
+                            cliente:
+                                cliente ||
+                                null,
+
+                            agente:
+                                agente ||
+                                null
+
+                        });
+                    }
+
+                    responderJSON(
+                        res,
+                        200,
                         {
-                            "Content-Type":
-                                "application/json"
+
+                            success:
+                                true,
+
+                            tickets:
+                                tickets
+
                         }
                     );
 
-                    res.end(
-                        JSON.stringify({
+                } catch (error) {
+
+                    responderJSON(
+                        res,
+                        500,
+                        {
 
                             success:
                                 false,
 
                             error:
-                                "Ticket no encontrado."
+                                error.message
 
-                        })
+                        }
+                    );
+                }
+
+                return;
+            }
+
+            // =================================================
+            // OBTENER TICKET COMPLETO
+            // =================================================
+
+            if (
+                req.method === "GET" &&
+                pathname.startsWith("/tickets/")
+            ) {
+
+                const id =
+                    obtenerIdTicket(
+                        pathname
+                    );
+
+                if (!id) {
+
+                    responderJSON(
+                        res,
+                        400,
+                        {
+
+                            success:
+                                false,
+
+                            error:
+                                "ID de ticket inválido."
+
+                        }
                     );
 
                     return;
                 }
 
-                throw errorConversacion;
+                try {
+
+                    const ticket =
+                        await obtenerTicketCompleto(
+                            id
+                        );
+
+                    responderJSON(
+                        res,
+                        200,
+                        {
+
+                            success:
+                                true,
+
+                            ticket:
+                                ticket,
+
+                            mensajes:
+                                ticket.mensajes,
+
+                            historial:
+                                ticket.historial
+
+                        }
+                    );
+
+                } catch (error) {
+
+                    responderJSON(
+                        res,
+                        500,
+                        {
+
+                            success:
+                                false,
+
+                            error:
+                                error.message
+
+                        }
+                    );
+                }
+
+                return;
             }
 
             // =================================================
-            // BUSCAR MENSAJES
+            // ASIGNAR TICKET
             // =================================================
-
-            const {
-                data: mensajes,
-                error: errorMensajes
-            } = await supabase
-                .from("mensajes")
-                .select(`
-                    id,
-                    cliente_id,
-                    conversacion_id,
-                    whatsapp_message_id,
-                    direccion,
-                    tipo,
-                    contenido,
-                    estado,
-                    recibido_en
-                `)
-                .eq(
-                    "conversacion_id",
-                    conversacionId
-                )
-                .order(
-                    "recibido_en",
-                    {
-                        ascending:
-                            true
-                    }
-                );
 
             if (
-                errorMensajes
+                req.method === "POST" &&
+                pathname.startsWith("/tickets/") &&
+                pathname.endsWith("/assign")
             ) {
-                throw errorMensajes;
-            }
 
-            // =================================================
-            // BUSCAR HISTORIAL
-            // =================================================
+                try {
 
-            const {
-                data: historial,
-                error: errorHistorial
-            } = await supabase
-                .from("ticket_historial")
-                .select(`
-                    id,
-                    conversacion_id,
-                    agente_id,
-                    accion,
-                    detalle,
-                    creado_en,
-                    agente:agentes (
+                    const partes =
+                        pathname.split("/")
+                            .filter(Boolean);
+
+                    const id =
+                        Number(
+                            partes[1]
+                        );
+
+                    if (
+                        !Number.isInteger(id) ||
+                        id <= 0
+                    ) {
+                        throw new Error(
+                            "ID de ticket inválido."
+                        );
+                    }
+
+                    const data =
+                        await leerBody(req);
+
+                    const agenteId =
+                        data.agente_id;
+
+                    if (
+                        agenteId === undefined ||
+                        agenteId === null
+                    ) {
+                        throw new Error(
+                            "Falta agente_id."
+                        );
+                    }
+
+                    const agente =
+                        await obtenerAgente(
+                            agenteId
+                        );
+
+                    if (!agente) {
+                        throw new Error(
+                            "El agente no existe."
+                        );
+                    }
+
+                    // -----------------------------------------
+                    // ACTUALIZAR
+                    // -----------------------------------------
+
+                    const {
+                        data: ticketActualizado,
+                        error
+                    } = await supabase
+                        .from("conversaciones")
+                        .update({
+
+                            agente_id:
+                                agenteId
+
+                        })
+                        .eq(
+                            "id",
+                            id
+                        )
+                        .select()
+                        .single();
+
+                    if (error) {
+                        throw error;
+                    }
+
+                    // -----------------------------------------
+                    // HISTORIAL
+                    // -----------------------------------------
+
+                    await registrarHistorial(
+
                         id,
-                        nombre
-                    )
-                `)
-                .eq(
-                    "conversacion_id",
-                    conversacionId
-                )
-                .order(
-                    "creado_en",
-                    {
-                        ascending:
-                            true
-                    }
-                );
+
+                        agenteId,
+
+                        "ticket_asignado",
+
+                        `Ticket asignado a ${agente.nombre}.`
+
+                    );
+
+                    responderJSON(
+                        res,
+                        200,
+                        {
+
+                            success:
+                                true,
+
+                            ticket:
+                                ticketActualizado,
+
+                            agente:
+                                agente
+
+                        }
+                    );
+
+                } catch (error) {
+
+                    responderJSON(
+                        res,
+                        500,
+                        {
+
+                            success:
+                                false,
+
+                            error:
+                                error.message
+
+                        }
+                    );
+                }
+
+                return;
+            }
+
+            // =================================================
+            // CAMBIAR ESTADO
+            // =================================================
 
             if (
-                errorHistorial
+                req.method === "POST" &&
+                pathname.startsWith("/tickets/") &&
+                pathname.endsWith("/status")
             ) {
-                throw errorHistorial;
+
+                try {
+
+                    const partes =
+                        pathname.split("/")
+                            .filter(Boolean);
+
+                    const id =
+                        Number(
+                            partes[1]
+                        );
+
+                    if (
+                        !Number.isInteger(id) ||
+                        id <= 0
+                    ) {
+                        throw new Error(
+                            "ID de ticket inválido."
+                        );
+                    }
+
+                    const data =
+                        await leerBody(req);
+
+                    const estado =
+                        data.estado;
+
+                    const agenteId =
+                        data.agente_id ||
+                        null;
+
+                    if (
+                        !estado
+                    ) {
+                        throw new Error(
+                            "Falta estado."
+                        );
+                    }
+
+                    const estadosPermitidos =
+                        [
+                            "abierta",
+                            "en_proceso",
+                            "en_espera",
+                            "resuelta",
+                            "cerrada"
+                        ];
+
+                    if (
+                        !estadosPermitidos.includes(
+                            estado
+                        )
+                    ) {
+                        throw new Error(
+                            "Estado no válido."
+                        );
+                    }
+
+                    const campos =
+                        {
+                            estado:
+                                estado
+                        };
+
+                    if (
+                        estado === "cerrada"
+                    ) {
+
+                        campos.cerrado_en =
+                            new Date()
+                                .toISOString();
+
+                    } else {
+
+                        campos.cerrado_en =
+                            null;
+                    }
+
+                    const {
+                        data: ticketActualizado,
+                        error
+                    } = await supabase
+                        .from("conversaciones")
+                        .update(
+                            campos
+                        )
+                        .eq(
+                            "id",
+                            id
+                        )
+                        .select()
+                        .single();
+
+                    if (error) {
+                        throw error;
+                    }
+
+                    await registrarHistorial(
+
+                        id,
+
+                        agenteId,
+
+                        "estado_cambiado",
+
+                        `Estado del ticket cambiado a "${estado}".`
+
+                    );
+
+                    responderJSON(
+                        res,
+                        200,
+                        {
+
+                            success:
+                                true,
+
+                            ticket:
+                                ticketActualizado
+
+                        }
+                    );
+
+                } catch (error) {
+
+                    responderJSON(
+                        res,
+                        500,
+                        {
+
+                            success:
+                                false,
+
+                            error:
+                                error.message
+
+                        }
+                    );
+                }
+
+                return;
             }
 
             // =================================================
-            // RESPUESTA
+            // CAMBIAR PRIORIDAD
             // =================================================
 
-            res.writeHead(
-                200,
-                {
-                    "Content-Type":
-                        "application/json"
+            if (
+                req.method === "POST" &&
+                pathname.startsWith("/tickets/") &&
+                pathname.endsWith("/priority")
+            ) {
+
+                try {
+
+                    const partes =
+                        pathname.split("/")
+                            .filter(Boolean);
+
+                    const id =
+                        Number(
+                            partes[1]
+                        );
+
+                    if (
+                        !Number.isInteger(id) ||
+                        id <= 0
+                    ) {
+                        throw new Error(
+                            "ID de ticket inválido."
+                        );
+                    }
+
+                    const data =
+                        await leerBody(req);
+
+                    const prioridad =
+                        data.prioridad;
+
+                    const agenteId =
+                        data.agente_id ||
+                        null;
+
+                    if (
+                        !prioridad
+                    ) {
+                        throw new Error(
+                            "Falta prioridad."
+                        );
+                    }
+
+                    const prioridadesPermitidas =
+                        [
+                            "baja",
+                            "normal",
+                            "alta",
+                            "urgente"
+                        ];
+
+                    if (
+                        !prioridadesPermitidas.includes(
+                            prioridad
+                        )
+                    ) {
+                        throw new Error(
+                            "Prioridad no válida."
+                        );
+                    }
+
+                    const {
+                        data: ticketActualizado,
+                        error
+                    } = await supabase
+                        .from("conversaciones")
+                        .update({
+
+                            prioridad:
+                                prioridad
+
+                        })
+                        .eq(
+                            "id",
+                            id
+                        )
+                        .select()
+                        .single();
+
+                    if (error) {
+                        throw error;
+                    }
+
+                    await registrarHistorial(
+
+                        id,
+
+                        agenteId,
+
+                        "prioridad_cambiada",
+
+                        `Prioridad cambiada a "${prioridad}".`
+
+                    );
+
+                    responderJSON(
+                        res,
+                        200,
+                        {
+
+                            success:
+                                true,
+
+                            ticket:
+                                ticketActualizado
+
+                        }
+                    );
+
+                } catch (error) {
+
+                    responderJSON(
+                        res,
+                        500,
+                        {
+
+                            success:
+                                false,
+
+                            error:
+                                error.message
+
+                        }
+                    );
                 }
-            );
 
-            res.end(
-                JSON.stringify({
-
-                    success:
-                        true,
-
-                    ticket:
-                        conversacion,
-
-                    mensajes:
-                        mensajes || [],
-
-                    historial:
-                        historial || []
-
-                })
-            );
-
-        } catch (error) {
-
-            console.error("");
-            console.error(
-                "========================================="
-            );
-
-            console.error(
-                "ERROR OBTENIENDO TICKET"
-            );
-
-            console.error(
-                "========================================="
-            );
-
-            console.error(error);
-
-            res.writeHead(
-                500,
-                {
-                    "Content-Type":
-                        "application/json"
-                }
-            );
-
-            res.end(
-                JSON.stringify({
-
-                    success:
-                        false,
-
-                    error:
-                        error.message
-
-                })
-            );
-        }
-
-        return;
-    }
-
-    // =================================================
-    // ENVIAR MENSAJE DE WHATSAPP
-    // =================================================
-
-    if (
-        req.method === "POST" &&
-        parsedUrl.pathname === "/send-message"
-    ) {
-
-        let body = "";
-
-        req.on(
-            "data",
-            chunk => {
-                body += chunk.toString();
+                return;
             }
-        );
 
-        req.on(
-            "end",
-            async () => {
+            // =================================================
+            // CAMBIAR CATEGORÍA
+            // =================================================
+
+            if (
+                req.method === "POST" &&
+                pathname.startsWith("/tickets/") &&
+                pathname.endsWith("/category")
+            ) {
+
+                try {
+
+                    const partes =
+                        pathname.split("/")
+                            .filter(Boolean);
+
+                    const id =
+                        Number(
+                            partes[1]
+                        );
+
+                    if (
+                        !Number.isInteger(id) ||
+                        id <= 0
+                    ) {
+                        throw new Error(
+                            "ID de ticket inválido."
+                        );
+                    }
+
+                    const data =
+                        await leerBody(req);
+
+                    const categoria =
+                        data.categoria;
+
+                    const agenteId =
+                        data.agente_id ||
+                        null;
+
+                    const {
+                        data: ticketActualizado,
+                        error
+                    } = await supabase
+                        .from("conversaciones")
+                        .update({
+
+                            categoria:
+                                categoria ||
+                                null
+
+                        })
+                        .eq(
+                            "id",
+                            id
+                        )
+                        .select()
+                        .single();
+
+                    if (error) {
+                        throw error;
+                    }
+
+                    await registrarHistorial(
+
+                        id,
+
+                        agenteId,
+
+                        "categoria_cambiada",
+
+                        categoria
+                            ? `Categoría cambiada a "${categoria}".`
+                            : "Categoría eliminada."
+
+                    );
+
+                    responderJSON(
+                        res,
+                        200,
+                        {
+
+                            success:
+                                true,
+
+                            ticket:
+                                ticketActualizado
+
+                        }
+                    );
+
+                } catch (error) {
+
+                    responderJSON(
+                        res,
+                        500,
+                        {
+
+                            success:
+                                false,
+
+                            error:
+                                error.message
+
+                        }
+                    );
+                }
+
+                return;
+            }
+
+            // =================================================
+            // CERRAR TICKET
+            // =================================================
+
+            if (
+                req.method === "POST" &&
+                pathname.startsWith("/tickets/") &&
+                pathname.endsWith("/close")
+            ) {
+
+                try {
+
+                    const partes =
+                        pathname.split("/")
+                            .filter(Boolean);
+
+                    const id =
+                        Number(
+                            partes[1]
+                        );
+
+                    if (
+                        !Number.isInteger(id) ||
+                        id <= 0
+                    ) {
+                        throw new Error(
+                            "ID de ticket inválido."
+                        );
+                    }
+
+                    const data =
+                        await leerBody(req);
+
+                    const agenteId =
+                        data.agente_id ||
+                        null;
+
+                    const {
+                        data: ticketActualizado,
+                        error
+                    } = await supabase
+                        .from("conversaciones")
+                        .update({
+
+                            estado:
+                                "cerrada",
+
+                            cerrado_en:
+                                new Date()
+                                    .toISOString()
+
+                        })
+                        .eq(
+                            "id",
+                            id
+                        )
+                        .select()
+                        .single();
+
+                    if (error) {
+                        throw error;
+                    }
+
+                    await registrarHistorial(
+
+                        id,
+
+                        agenteId,
+
+                        "ticket_cerrado",
+
+                        "Ticket cerrado por el agente."
+
+                    );
+
+                    responderJSON(
+                        res,
+                        200,
+                        {
+
+                            success:
+                                true,
+
+                            ticket:
+                                ticketActualizado
+
+                        }
+                    );
+
+                } catch (error) {
+
+                    responderJSON(
+                        res,
+                        500,
+                        {
+
+                            success:
+                                false,
+
+                            error:
+                                error.message
+
+                        }
+                    );
+                }
+
+                return;
+            }
+
+            // =================================================
+            // ENVIAR MENSAJE WHATSAPP
+            // =================================================
+
+            if (
+                req.method === "POST" &&
+                pathname === "/send-message"
+            ) {
 
                 try {
 
                     const data =
-                        JSON.parse(body);
+                        await leerBody(req);
 
                     const to =
                         data.to;
@@ -1544,35 +2306,37 @@ Por favor, aguardá el contacto del agente.`;
                         data.conversacion_id;
 
                     const agenteId =
-                        data.agente_id;
+                        data.agente_id ||
+                        null;
+
+                    // -----------------------------------------
+                    // VALIDACIÓN
+                    // -----------------------------------------
 
                     if (
                         !to ||
                         !message
                     ) {
 
-                        res.writeHead(
+                        responderJSON(
+                            res,
                             400,
                             {
-                                "Content-Type":
-                                    "application/json"
-                            }
-                        );
 
-                        res.end(
-                            JSON.stringify({
+                                success:
+                                    false,
 
                                 error:
                                     "Faltan los campos 'to' y 'message'."
 
-                            })
+                            }
                         );
 
                         return;
                     }
 
                     // -----------------------------------------
-                    // ENVIAR A WHATSAPP
+                    // ENVIAR WHATSAPP
                     // -----------------------------------------
 
                     const result =
@@ -1582,7 +2346,7 @@ Por favor, aguardá el contacto del agente.`;
                         );
 
                     // -----------------------------------------
-                    // GUARDAR EN SUPABASE
+                    // GUARDAR SUPABASE
                     // -----------------------------------------
 
                     if (
@@ -1599,7 +2363,7 @@ Por favor, aguardá el contacto del agente.`;
                             error: errorConversacion
                         } = await supabase
                             .from("conversaciones")
-                            .select("cliente_id")
+                            .select("*")
                             .eq(
                                 "id",
                                 conversacionId
@@ -1612,104 +2376,28 @@ Por favor, aguardá el contacto del agente.`;
                             throw errorConversacion;
                         }
 
-                        const {
-                            error: errorMensaje
-                        } = await supabase
-                            .from("mensajes")
-                            .insert({
+                        await guardarMensajeSaliente(
 
-                                cliente_id:
-                                    conversacion.cliente_id,
+                            conversacion,
 
-                                conversacion_id:
-                                    conversacionId,
+                            message,
 
-                                whatsapp_message_id:
-                                    whatsappMessageId,
+                            agenteId,
 
-                                direccion:
-                                    "saliente",
+                            whatsappMessageId
 
-                                tipo:
-                                    "text",
+                        );
 
-                                contenido:
-                                    message,
-
-                                estado:
-                                    "enviado"
-
-                            });
-
-                        if (
-                            errorMensaje
-                        ) {
-                            throw errorMensaje;
-                        }
-
-                        const {
-                            error: errorActualizacion
-                        } = await supabase
-                            .from("conversaciones")
-                            .update({
-
-                                ultima_interaccion:
-                                    new Date().toISOString()
-
-                            })
-                            .eq(
-                                "id",
-                                conversacionId
-                            );
-
-                        if (
-                            errorActualizacion
-                        ) {
-                            throw errorActualizacion;
-                        }
-
-                        const {
-                            error: errorHistorial
-                        } = await supabase
-                            .from("ticket_historial")
-                            .insert({
-
-                                conversacion_id:
-                                    conversacionId,
-
-                                agente_id:
-                                    agenteId ||
-                                    null,
-
-                                accion:
-                                    "mensaje_enviado",
-
-                                detalle:
-                                    "El agente envió un mensaje al cliente por WhatsApp."
-
-                            });
-
-                        if (
-                            errorHistorial
-                        ) {
-                            throw errorHistorial;
-                        }
                     }
 
                     // -----------------------------------------
                     // RESPUESTA
                     // -----------------------------------------
 
-                    res.writeHead(
+                    responderJSON(
+                        res,
                         200,
                         {
-                            "Content-Type":
-                                "application/json"
-                        }
-                    );
-
-                    res.end(
-                        JSON.stringify({
 
                             success:
                                 true,
@@ -1717,7 +2405,7 @@ Por favor, aguardá el contacto del agente.`;
                             whatsapp:
                                 result
 
-                        })
+                        }
                     );
 
                 } catch (error) {
@@ -1726,69 +2414,71 @@ Por favor, aguardá el contacto del agente.`;
                         "Error enviando mensaje:"
                     );
 
-                    console.error(error);
-
-                    res.writeHead(
-                        500,
-                        {
-                            "Content-Type":
-                                "application/json"
-                        }
+                    console.error(
+                        error
                     );
 
-                    res.end(
-                        JSON.stringify({
+                    responderJSON(
+                        res,
+                        500,
+                        {
+
+                            success:
+                                false,
 
                             error:
                                 error.message
 
-                        })
+                        }
                     );
                 }
+
+                return;
             }
-        );
 
-        return;
-    }
+            // =================================================
+            // RUTA RAÍZ
+            // =================================================
 
-    // =================================================
-    // RUTA RAÍZ
-    // =================================================
+            if (
+                req.method === "GET" &&
+                pathname === "/"
+            ) {
 
-    if (
-        req.method === "GET" &&
-        parsedUrl.pathname === "/"
-    ) {
+                res.writeHead(
+                    200,
+                    {
+                        "Content-Type":
+                            "text/plain; charset=utf-8"
+                    }
+                );
 
-        res.writeHead(
-            200,
-            {
-                "Content-Type":
-                    "text/plain"
+                res.end(
+                    "TR Soporte - WhatsApp Webhook funcionando."
+                );
+
+                return;
             }
-        );
 
-        res.end(
-            "TR Soporte - WhatsApp Webhook funcionando."
-        );
+            // =================================================
+            // RUTA NO ENCONTRADA
+            // =================================================
 
-        return;
-    }
+            responderJSON(
+                res,
+                404,
+                {
 
-    // =================================================
-    // RUTA NO ENCONTRADA
-    // =================================================
+                    success:
+                        false,
 
-    res.writeHead(
-        404,
-        {
-            "Content-Type":
-                "text/plain"
+                    error:
+                        "Ruta no encontrada."
+
+                }
+            );
         }
     );
-
-    res.end("Not Found");
-});
 
 // =====================================================
 // INICIAR SERVIDOR
