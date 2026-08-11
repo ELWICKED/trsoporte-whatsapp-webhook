@@ -1017,7 +1017,7 @@ async function obtenerOCrearConversacion(
 }
 
 // =====================================================
-// OBTENER ÚLTIMO TICKET DE CONVERSACIÓN
+// BUSCAR TICKET POR CONVERSACIÓN
 // =====================================================
 
 async function buscarTicketPorConversacion(
@@ -1029,130 +1029,33 @@ async function buscarTicketPorConversacion(
         error
     } =
         await supabase
-            .from("tickets")
-            .select("*")
+            .from("conversaciones")
+            .select(`
+                *,
+                cliente:clientes(
+                    id,
+                    nombre,
+                    telefono,
+                    empresa
+                ),
+                agente:agentes(
+                    id,
+                    nombre,
+                    rol,
+                    area,
+                    activo
+                )
+            `)
             .eq(
-                "cliente_id",
-                (
-                    await supabase
-                        .from("conversaciones")
-                        .select("cliente_id")
-                        .eq(
-                            "id",
-                            conversacionId
-                        )
-                        .single()
-                ).data?.cliente_id
+                "id",
+                conversacionId
             )
-            .order(
-                "creado_en",
-                {
-                    ascending: false
-                }
-            )
-            .limit(1)
             .maybeSingle();
 
     if (error) {
 
         throw new Error(
             "Error buscando ticket: " +
-            error.message
-        );
-    }
-
-    return data;
-}
-
-// =====================================================
-// OBTENER SIGUIENTE NÚMERO DE TICKET
-// =====================================================
-
-async function obtenerSiguienteNumeroTicket() {
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("tickets")
-            .select("numero_ticket")
-            .order(
-                "numero_ticket",
-                {
-                    ascending: false
-                }
-            )
-            .limit(1)
-            .maybeSingle();
-
-    if (error) {
-
-        throw new Error(
-            "Error obteniendo número de ticket: " +
-            error.message
-        );
-    }
-
-    const ultimo =
-        data &&
-        data.numero_ticket
-            ? Number(
-                data.numero_ticket
-            )
-            : 100000;
-
-    return ultimo + 1;
-}
-
-// =====================================================
-// CREAR TICKET
-// =====================================================
-
-async function crearTicket(
-    clienteId
-) {
-
-    const numeroTicket =
-        await obtenerSiguienteNumeroTicket();
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("tickets")
-            .insert(
-                {
-                    numero_ticket:
-                        numeroTicket,
-
-                    cliente_id:
-                        clienteId,
-
-                    agente_id:
-                        null,
-
-                    estado:
-                        "abierta",
-
-                    prioridad:
-                        "normal",
-
-                    categoria:
-                        null,
-
-                    ultima_interaccion:
-                        new Date().toISOString()
-                }
-            )
-            .select("*")
-            .single();
-
-    if (error) {
-
-        throw new Error(
-            "Error creando ticket: " +
             error.message
         );
     }
@@ -1176,24 +1079,10 @@ async function obtenerOCrearTicket(
 
     if (ticket) {
 
-        // Si existe pero está cerrado,
-        // creamos uno nuevo para la nueva conversación.
-        if (
-            String(
-                ticket.estado || ""
-            ).toLowerCase() ===
-            "cerrada"
-        ) {
-
-            return await crearTicket(
-                clienteId
-            );
-        }
-
         return ticket;
     }
 
-    return await crearTicket(
+    return await crearConversacion(
         clienteId
     );
 }
@@ -1244,16 +1133,11 @@ async function guardarMensaje(
     };
 
     /*
-     * IMPORTANTE:
+     * La tabla mensajes actual no necesita
+     * nuevas columnas para multimedia.
      *
-     * No agregamos columnas multimedia
-     * que no existan en tu tabla mensajes.
-     *
-     * La información multimedia se conserva
-     * dentro de "contenido" en formato JSON.
-     *
-     * De esta forma no modificamos todavía
-     * la estructura de Supabase.
+     * Guardamos la información del archivo
+     * dentro de contenido como JSON.
      */
 
     if (multimedia) {
@@ -1310,6 +1194,7 @@ async function guardarMensaje(
 
     return data;
 }
+
 
 // =====================================================
 // ACTUALIZAR CLIENTE
@@ -1395,7 +1280,7 @@ async function registrarHistorial(
         error
     } =
         await supabase
-            .from("historial")
+            .from("ticket_historial")
             .insert(
                 {
                     conversacion_id:
@@ -1519,8 +1404,10 @@ async function procesarMensajeEntrante(
                 error.message
             );
 
-            // No detenemos el procesamiento
-            // del mensaje completo.
+            /*
+             * Si falla la descarga del archivo,
+             * no perdemos el mensaje.
+             */
             multimedia = null;
         }
     }
@@ -1699,6 +1586,7 @@ async function procesarEventoWhatsApp(
                 change.value;
 
             if (!value) {
+
                 continue;
             }
 
@@ -1751,114 +1639,6 @@ async function procesarEventoWhatsApp(
     }
 }
 
-
-// =====================================================
-// CREAR TICKET AUTOMÁTICAMENTE SI ES NECESARIO
-// =====================================================
-
-async function asegurarTicketParaConversacion(
-    clienteId,
-    conversacionId
-) {
-
-    const {
-        data: tickets,
-        error
-    } =
-        await supabase
-            .from("tickets")
-            .select("*")
-            .eq(
-                "cliente_id",
-                clienteId
-            )
-            .order(
-                "creado_en",
-                {
-                    ascending: false
-                }
-            )
-            .limit(1);
-
-    if (error) {
-
-        throw new Error(
-            "Error consultando tickets: " +
-            error.message
-        );
-    }
-
-    if (
-        tickets &&
-        tickets.length > 0
-    ) {
-
-        const ticket =
-            tickets[0];
-
-        if (
-            String(
-                ticket.estado || ""
-            ).toLowerCase() !==
-            "cerrada"
-        ) {
-
-            return ticket;
-        }
-    }
-
-    return await crearTicket(
-        clienteId
-    );
-}
-
-// =====================================================
-// BUSCAR TICKET POR ID
-// =====================================================
-
-async function obtenerTicketPorId(
-    id
-) {
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("tickets")
-            .select(`
-                *,
-                cliente:clientes(
-                    id,
-                    nombre,
-                    telefono,
-                    empresa
-                ),
-                agente:agentes(
-                    id,
-                    nombre,
-                    rol,
-                    area,
-                    activo
-                )
-            `)
-            .eq(
-                "id",
-                id
-            )
-            .maybeSingle();
-
-    if (error) {
-
-        throw new Error(
-            "Error consultando ticket: " +
-            error.message
-        );
-    }
-
-    return data;
-}
-
 // =====================================================
 // OBTENER TICKETS
 // =====================================================
@@ -1870,7 +1650,7 @@ async function obtenerTickets() {
         error
     } =
         await supabase
-            .from("tickets")
+            .from("conversaciones")
             .select(`
                 *,
                 cliente:clientes(
@@ -1906,7 +1686,54 @@ async function obtenerTickets() {
 }
 
 // =====================================================
-// OBTENER MENSAJES DE TICKET
+// OBTENER TICKET POR ID
+// =====================================================
+
+async function obtenerTicketPorId(
+    id
+) {
+
+    const {
+        data,
+        error
+    } =
+        await supabase
+            .from("conversaciones")
+            .select(`
+                *,
+                cliente:clientes(
+                    id,
+                    nombre,
+                    telefono,
+                    empresa
+                ),
+                agente:agentes(
+                    id,
+                    nombre,
+                    rol,
+                    area,
+                    activo
+                )
+            `)
+            .eq(
+                "id",
+                id
+            )
+            .maybeSingle();
+
+    if (error) {
+
+        throw new Error(
+            "Error consultando ticket: " +
+            error.message
+        );
+    }
+
+    return data;
+}
+
+// =====================================================
+// OBTENER MENSAJES DEL TICKET
 // =====================================================
 
 async function obtenerMensajesTicket(
@@ -1926,8 +1753,8 @@ async function obtenerMensajesTicket(
             .from("mensajes")
             .select("*")
             .eq(
-                "cliente_id",
-                ticket.cliente_id
+                "conversacion_id",
+                ticket.id
             )
             .order(
                 "recibido_en",
@@ -1949,11 +1776,6 @@ async function obtenerMensajesTicket(
 
 // =====================================================
 // NORMALIZAR MENSAJE PARA EL C#
-/*
- * Esta función permite que el frontend pueda
- * reconocer fácilmente si el contenido corresponde
- * a multimedia.
- */
 // =====================================================
 
 function normalizarMensajeParaCliente(
@@ -1970,7 +1792,7 @@ function normalizarMensajeParaCliente(
     };
 
     // -------------------------------------------------
-    // Mensajes de texto
+    // Mensajes de texto normales
     // -------------------------------------------------
 
     if (
@@ -1982,7 +1804,7 @@ function normalizarMensajeParaCliente(
     }
 
     // -------------------------------------------------
-    // Intentar interpretar contenido multimedia
+    // Intentar interpretar multimedia
     // -------------------------------------------------
 
     if (
@@ -2090,8 +1912,9 @@ async function obtenerAgentes() {
     return data || [];
 }
 
+
 // =====================================================
-// ACTUALIZAR AGENTE
+// ASIGNAR AGENTE
 // =====================================================
 
 async function asignarAgente(
@@ -2104,7 +1927,7 @@ async function asignarAgente(
         error
     } =
         await supabase
-            .from("tickets")
+            .from("conversaciones")
             .update(
                 {
                     agente_id:
@@ -2118,7 +1941,22 @@ async function asignarAgente(
                 "id",
                 ticketId
             )
-            .select("*")
+            .select(`
+                *,
+                cliente:clientes(
+                    id,
+                    nombre,
+                    telefono,
+                    empresa
+                ),
+                agente:agentes(
+                    id,
+                    nombre,
+                    rol,
+                    area,
+                    activo
+                )
+            `)
             .single();
 
     if (error) {
@@ -2158,31 +1996,61 @@ async function actualizarEstadoTicket(
         );
     }
 
+    const ahora =
+        new Date().toISOString();
+
+    const datos = {
+
+        estado:
+            estado,
+
+        ultima_interaccion:
+            ahora
+    };
+
+    if (
+        estado ===
+        "cerrada"
+    ) {
+
+        datos.cerrado_en =
+            ahora;
+
+    } else {
+
+        datos.cerrado_en =
+            null;
+    }
+
     const {
         data,
         error
     } =
         await supabase
-            .from("tickets")
+            .from("conversaciones")
             .update(
-                {
-                    estado:
-                        estado,
-
-                    ultima_interaccion:
-                        new Date().toISOString(),
-
-                    cerrado_en:
-                        estado === "cerrada"
-                            ? new Date().toISOString()
-                            : null
-                }
+                datos
             )
             .eq(
                 "id",
                 ticketId
             )
-            .select("*")
+            .select(`
+                *,
+                cliente:clientes(
+                    id,
+                    nombre,
+                    telefono,
+                    empresa
+                ),
+                agente:agentes(
+                    id,
+                    nombre,
+                    rol,
+                    area,
+                    activo
+                )
+            `)
             .single();
 
     if (error) {
@@ -2212,11 +2080,16 @@ async function actualizarPrioridadTicket(
         "urgente"
     ];
 
+    const prioridadNormalizada =
+        String(
+            prioridad || ""
+        )
+        .trim()
+        .toLowerCase();
+
     if (
         !prioridadesValidas.includes(
-            String(
-                prioridad
-            ).toLowerCase()
+            prioridadNormalizada
         )
     ) {
 
@@ -2230,13 +2103,11 @@ async function actualizarPrioridadTicket(
         error
     } =
         await supabase
-            .from("tickets")
+            .from("conversaciones")
             .update(
                 {
                     prioridad:
-                        String(
-                            prioridad
-                        ).toLowerCase(),
+                        prioridadNormalizada,
 
                     ultima_interaccion:
                         new Date().toISOString()
@@ -2246,7 +2117,22 @@ async function actualizarPrioridadTicket(
                 "id",
                 ticketId
             )
-            .select("*")
+            .select(`
+                *,
+                cliente:clientes(
+                    id,
+                    nombre,
+                    telefono,
+                    empresa
+                ),
+                agente:agentes(
+                    id,
+                    nombre,
+                    rol,
+                    area,
+                    activo
+                )
+            `)
             .single();
 
     if (error) {
@@ -2269,16 +2155,23 @@ async function actualizarCategoriaTicket(
     categoria
 ) {
 
+    const categoriaNormalizada =
+        categoria == null
+            ? null
+            : String(
+                categoria
+            ).trim();
+
     const {
         data,
         error
     } =
         await supabase
-            .from("tickets")
+            .from("conversaciones")
             .update(
                 {
                     categoria:
-                        categoria || null,
+                        categoriaNormalizada,
 
                     ultima_interaccion:
                         new Date().toISOString()
@@ -2288,7 +2181,22 @@ async function actualizarCategoriaTicket(
                 "id",
                 ticketId
             )
-            .select("*")
+            .select(`
+                *,
+                cliente:clientes(
+                    id,
+                    nombre,
+                    telefono,
+                    empresa
+                ),
+                agente:agentes(
+                    id,
+                    nombre,
+                    rol,
+                    area,
+                    activo
+                )
+            `)
             .single();
 
     if (error) {
@@ -2314,12 +2222,32 @@ async function cerrarTicket(
     const ahora =
         new Date().toISOString();
 
+    // -------------------------------------------------
+    // Obtener ticket actual
+    // -------------------------------------------------
+
+    const ticketActual =
+        await obtenerTicketPorId(
+            ticketId
+        );
+
+    if (!ticketActual) {
+
+        throw new Error(
+            "Ticket no encontrado."
+        );
+    }
+
+    // -------------------------------------------------
+    // Actualizar conversación/ticket
+    // -------------------------------------------------
+
     const {
         data: ticket,
         error
     } =
         await supabase
-            .from("tickets")
+            .from("conversaciones")
             .update(
                 {
                     estado:
@@ -2351,7 +2279,8 @@ async function cerrarTicket(
                     id,
                     nombre,
                     rol,
-                    area
+                    area,
+                    activo
                 )
             `)
             .single();
@@ -2365,64 +2294,15 @@ async function cerrarTicket(
     }
 
     // -------------------------------------------------
-    // Registrar historial
+    // Historial
     // -------------------------------------------------
 
-    let conversacionId =
-        null;
-
-    const {
-        data: conversaciones
-    } =
-        await supabase
-            .from("conversaciones")
-            .select("id")
-            .eq(
-                "cliente_id",
-                ticket.cliente_id
-            )
-            .order(
-                "creado_en",
-                {
-                    ascending: false
-                }
-            )
-            .limit(1);
-
-    if (
-        conversaciones &&
-        conversaciones.length > 0
-    ) {
-
-        conversacionId =
-            conversaciones[0].id;
-    }
-
-    if (conversacionId) {
-
-        await registrarHistorial(
-            conversacionId,
-            agenteId,
-            "ticket_cerrado",
-            "El ticket fue cerrado por el agente."
-        );
-
-        await supabase
-            .from("conversaciones")
-            .update(
-                {
-                    estado:
-                        "cerrada",
-
-                    ultima_interaccion:
-                        ahora
-                }
-            )
-            .eq(
-                "id",
-                conversacionId
-            );
-    }
+    await registrarHistorial(
+        ticketId,
+        agenteId,
+        "ticket_cerrado",
+        "El ticket fue cerrado por el agente."
+    );
 
     // -------------------------------------------------
     // Enviar mensaje de cierre
@@ -2445,7 +2325,7 @@ async function cerrarTicket(
                 telefono,
                 mensaje,
                 ticket.cliente_id,
-                conversacionId,
+                ticket.id,
                 agenteId
             );
 
@@ -2487,7 +2367,7 @@ async function enviarMensajeWhatsApp(
         );
     }
 
-    const url =
+    const endpoint =
         `https://graph.facebook.com/v26.0/${PHONE_NUMBER_ID}/messages`;
 
     const body = {
@@ -2505,6 +2385,7 @@ async function enviarMensajeWhatsApp(
             "text",
 
         text: {
+
             preview_url:
                 false,
 
@@ -2515,9 +2396,10 @@ async function enviarMensajeWhatsApp(
 
     const response =
         await fetch(
-            url,
+            endpoint,
             {
-                method: "POST",
+                method:
+                    "POST",
 
                 headers: {
 
@@ -2529,7 +2411,9 @@ async function enviarMensajeWhatsApp(
                 },
 
                 body:
-                    JSON.stringify(body)
+                    JSON.stringify(
+                        body
+                    )
             }
         );
 
@@ -2600,7 +2484,7 @@ async function enviarMensajeWhatsApp(
 }
 
 // =====================================================
-// BUSCAR TICKET POR NÚMERO
+// BUSCAR TICKETS
 // =====================================================
 
 async function buscarTickets(
@@ -2617,12 +2501,114 @@ async function buscarTickets(
         return await obtenerTickets();
     }
 
+    // -------------------------------------------------
+    // Primero buscamos por número de ticket
+    // -------------------------------------------------
+
+    const numero =
+        Number(
+            textoBusqueda
+        );
+
+    if (
+        Number.isFinite(
+            numero
+        )
+    ) {
+
+        const {
+            data,
+            error
+        } =
+            await supabase
+                .from("conversaciones")
+                .select(`
+                    *,
+                    cliente:clientes(
+                        id,
+                        nombre,
+                        telefono,
+                        empresa
+                    ),
+                    agente:agentes(
+                        id,
+                        nombre,
+                        rol,
+                        area,
+                        activo
+                    )
+                `)
+                .eq(
+                    "numero_ticket",
+                    numero
+                )
+                .order(
+                    "creado_en",
+                    {
+                        ascending:
+                            false
+                    }
+                );
+
+        if (error) {
+
+            throw new Error(
+                "Error buscando tickets: " +
+                error.message
+            );
+        }
+
+        return data || [];
+    }
+
+    // -------------------------------------------------
+    // Si no es número, buscamos por cliente
+    // -------------------------------------------------
+
+    const {
+        data: clientes,
+        error: errorClientes
+    } =
+        await supabase
+            .from("clientes")
+            .select(
+                "id"
+            )
+            .or(
+                `nombre.ilike.%${textoBusqueda}%,telefono.ilike.%${textoBusqueda}%`
+            );
+
+    if (errorClientes) {
+
+        throw new Error(
+            "Error buscando clientes: " +
+            errorClientes.message
+        );
+    }
+
+    const clienteIds =
+        (
+            clientes || []
+        )
+        .map(
+            cliente =>
+                cliente.id
+        );
+
+    if (
+        clienteIds.length ===
+        0
+    ) {
+
+        return [];
+    }
+
     const {
         data,
         error
     } =
         await supabase
-            .from("tickets")
+            .from("conversaciones")
             .select(`
                 *,
                 cliente:clientes(
@@ -2639,13 +2625,15 @@ async function buscarTickets(
                     activo
                 )
             `)
-            .or(
-                `numero_ticket.ilike.%${textoBusqueda}%`
+            .in(
+                "cliente_id",
+                clienteIds
             )
             .order(
                 "creado_en",
                 {
-                    ascending: false
+                    ascending:
+                        false
                 }
             );
 
@@ -2661,7 +2649,7 @@ async function buscarTickets(
 }
 
 // =====================================================
-// RESPUESTA DE TICKET
+// CONSTRUIR RESPUESTA DE TICKET
 // =====================================================
 
 async function construirRespuestaTicket(
@@ -2671,6 +2659,7 @@ async function construirRespuestaTicket(
     if (!ticket) {
 
         return {
+
             success:
                 false,
 
@@ -2758,7 +2747,6 @@ async function manejarHealth(
         }
     );
 }
-
 
 // =====================================================
 // RUTA PRINCIPAL
@@ -2893,11 +2881,6 @@ async function manejarWebhook(
             "Error procesando webhook:",
             error
         );
-
-        /*
-         * WhatsApp necesita recibir una respuesta
-         * válida para evitar reintentos innecesarios.
-         */
 
         responderJSON(
             res,
@@ -3787,6 +3770,10 @@ async function manejarSolicitud(
         return;
     }
 
+    // =================================================
+    // ASIGNAR AGENTE
+    // =================================================
+
     const assignMatch =
         pathname.match(
             /^\/tickets\/(\d+)\/assign$/
@@ -3805,6 +3792,10 @@ async function manejarSolicitud(
 
         return;
     }
+
+    // =================================================
+    // ACTUALIZAR ESTADO
+    // =================================================
 
     const statusMatch =
         pathname.match(
@@ -3825,6 +3816,10 @@ async function manejarSolicitud(
         return;
     }
 
+    // =================================================
+    // ACTUALIZAR PRIORIDAD
+    // =================================================
+
     const priorityMatch =
         pathname.match(
             /^\/tickets\/(\d+)\/priority$/
@@ -3844,6 +3839,10 @@ async function manejarSolicitud(
         return;
     }
 
+    // =================================================
+    // ACTUALIZAR CATEGORÍA
+    // =================================================
+
     const categoryMatch =
         pathname.match(
             /^\/tickets\/(\d+)\/category$/
@@ -3862,6 +3861,10 @@ async function manejarSolicitud(
 
         return;
     }
+
+    // =================================================
+    // CERRAR TICKET
+    // =================================================
 
     const closeMatch =
         pathname.match(
