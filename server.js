@@ -10,9 +10,7 @@ const PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID;
 const server = http.createServer((req, res) => {
     const parsedUrl = url.parse(req.url, true);
 
-    // ==========================================
     // PÁGINA PRINCIPAL
-    // ==========================================
     if (req.method === "GET" && parsedUrl.pathname === "/") {
         res.writeHead(200, {
             "Content-Type": "text/plain"
@@ -22,9 +20,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // ==========================================
     // VERIFICACIÓN DEL WEBHOOK DE META
-    // ==========================================
     if (req.method === "GET" && parsedUrl.pathname === "/webhook") {
 
         const mode = parsedUrl.query["hub.mode"];
@@ -52,9 +48,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // ==========================================
     // RECEPCIÓN DE EVENTOS DE WHATSAPP
-    // ==========================================
     if (req.method === "POST" && parsedUrl.pathname === "/webhook") {
 
         let body = "";
@@ -80,9 +74,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // ==========================================
     // ENVIAR MENSAJE DE WHATSAPP
-    // ==========================================
     if (req.method === "POST" && parsedUrl.pathname === "/send-message") {
 
         let body = "";
@@ -117,7 +109,6 @@ const server = http.createServer((req, res) => {
                     `https://graph.facebook.com/v23.0/${PHONE_NUMBER_ID}/messages`;
 
                 const response = await fetch(whatsappUrl, {
-
                     method: "POST",
 
                     headers: {
@@ -164,18 +155,12 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // ==========================================
     // RUTA NO ENCONTRADA
-    // ==========================================
-
     res.writeHead(404);
     res.end("Not Found");
 });
 
-// ==========================================
 // INICIAR SERVIDOR
-// ==========================================
-
 server.listen(PORT, () => {
     console.log(`Servidor iniciado en el puerto ${PORT}`);
 });
