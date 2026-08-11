@@ -1,13 +1,16 @@
 const http = require("http");
 const url = require("url");
 
-const { createClient } = require("@supabase/supabase-js");
-
-const PORT = process.env.PORT || 3000;
+const {
+    createClient
+} = require("@supabase/supabase-js");
 
 // =====================================================
-// VARIABLES DE ENTORNO
+// CONFIGURACIÓN
 // =====================================================
+
+const PORT =
+    process.env.PORT || 3000;
 
 const VERIFY_TOKEN =
     process.env.META_VERIFY_TOKEN;
@@ -24,28 +27,26 @@ const SUPABASE_URL =
 const SUPABASE_SECRET_KEY =
     process.env.SUPABASE_SECRET_KEY;
 
+const WHATSAPP_MEDIA_BUCKET =
+    process.env.WHATSAPP_MEDIA_BUCKET ||
+    "whatsapp-media";
+
 // =====================================================
 // SUPABASE
 // =====================================================
 
-const supabase = createClient(
-    SUPABASE_URL,
-    SUPABASE_SECRET_KEY
-);
-
-// =====================================================
-// ALMACENAMIENTO MULTIMEDIA
-// =====================================================
-
-const WHATSAPP_MEDIA_BUCKET =
-    "whatsapp-media";
+const supabase =
+    createClient(
+        SUPABASE_URL,
+        SUPABASE_SECRET_KEY
+    );
 
 console.log(
     "Cliente de Supabase inicializado."
 );
 
 // =====================================================
-// RESPONDER JSON
+// RESPUESTA JSON
 // =====================================================
 
 function responderJSON(
@@ -53,6 +54,10 @@ function responderJSON(
     statusCode,
     data
 ) {
+
+    if (res.headersSent) {
+        return;
+    }
 
     res.writeHead(
         statusCode,
@@ -74,7 +79,10 @@ function responderJSON(
 function leerBody(req) {
 
     return new Promise(
-        (resolve, reject) => {
+        (
+            resolve,
+            reject
+        ) => {
 
             let body = "";
 
@@ -84,7 +92,6 @@ function leerBody(req) {
 
                     body +=
                         chunk.toString();
-
                 }
             );
 
@@ -102,10 +109,12 @@ function leerBody(req) {
                     try {
 
                         resolve(
-                            JSON.parse(body)
+                            JSON.parse(
+                                body
+                            )
                         );
 
-                    } catch (error) {
+                    } catch {
 
                         reject(
                             new Error(
@@ -118,267 +127,51 @@ function leerBody(req) {
 
             req.on(
                 "error",
-                error => {
-
-                    reject(error);
-
-                }
+                reject
             );
         }
     );
 }
 
 // =====================================================
-// MULTIMEDIA DE WHATSAPP
+// OBTENER ID DE TICKET
 // =====================================================
 
-function obtenerExtensionMedia(
-    mimeType,
-    nombreArchivo = ""
+function obtenerIdTicket(
+    pathname
 ) {
 
-    const nombre =
-        String(
-            nombreArchivo || ""
-        ).trim();
-
-    if (nombre.includes(".")) {
-
-        const extension =
-            nombre
-                .split(".")
-                .pop()
-                .toLowerCase();
-
-        if (
-            extension &&
-            extension.length <= 10
-        ) {
-            return extension;
-        }
-    }
-
-    const mapa = {
-
-        "image/jpeg": "jpg",
-
-        "image/jpg": "jpg",
-
-        "image/png": "png",
-
-        "image/webp": "webp",
-
-        "image/gif": "gif",
-
-        "video/mp4": "mp4",
-
-        "video/3gpp": "3gp",
-
-        "audio/aac": "aac",
-
-        "audio/amr": "amr",
-
-        "audio/mpeg": "mp3",
-
-        "audio/mp4": "m4a",
-
-        "audio/ogg": "ogg",
-
-        "application/pdf": "pdf",
-
-        "application/msword": "doc",
-
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            "docx",
-
-        "application/vnd.ms-excel": "xls",
-
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-            "xlsx",
-
-        "application/vnd.ms-powerpoint": "ppt",
-
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation":
-            "pptx",
-
-        "text/plain": "txt",
-
-        "application/zip": "zip",
-
-        "application/octet-stream": "bin"
-    };
-
-    return mapa[mimeType] || "bin";
-}
-
-async function descargarMediaWhatsApp(
-    mediaId
-) {
-
-    if (!mediaId) {
-
-        throw new Error(
-            "Falta media_id de WhatsApp."
-        );
-    }
-
-    const mediaInfoUrl =
-        `https://graph.facebook.com/v26.0/${mediaId}`;
-
-    const infoResponse =
-        await fetch(
-            mediaInfoUrl,
-            {
-                method: "GET",
-
-                headers: {
-                    "Authorization":
-                        `Bearer ${ACCESS_TOKEN}`
-                }
-            }
-        );
-
-    const info =
-        await infoResponse.json();
+    const partes =
+        pathname
+            .split("/")
+            .filter(Boolean);
 
     if (
-        !infoResponse.ok ||
-        !info.url
+        partes.length !== 2 ||
+        partes[0] !== "tickets"
     ) {
 
-        throw new Error(
-            info?.error?.message ||
-            "No se pudo obtener la URL del archivo multimedia desde Meta."
-        );
+        return null;
     }
 
-    const mediaResponse =
-        await fetch(
-            info.url,
-            {
-                method: "GET",
-
-                headers: {
-                    "Authorization":
-                        `Bearer ${ACCESS_TOKEN}`
-                }
-            }
+    const id =
+        Number(
+            partes[1]
         );
 
-    if (!mediaResponse.ok) {
+    if (
+        !Number.isInteger(id) ||
+        id <= 0
+    ) {
 
-        const errorTexto =
-            await mediaResponse.text();
-
-        throw new Error(
-            `No se pudo descargar el archivo multimedia de WhatsApp. ${errorTexto}`
-        );
+        return null;
     }
 
-    const buffer =
-        Buffer.from(
-            await mediaResponse.arrayBuffer()
-        );
-
-    return {
-
-        buffer: buffer,
-
-        mimeType:
-            info.mime_type ||
-            mediaResponse.headers.get(
-                "content-type"
-            ) ||
-            "application/octet-stream",
-
-        sha256:
-            info.sha256 ||
-            null
-    };
-}
-
-async function guardarMediaWhatsApp(
-    mediaId,
-    mimeType,
-    nombreArchivo,
-    buffer
-) {
-
-    const extension =
-        obtenerExtensionMedia(
-            mimeType,
-            nombreArchivo
-        );
-
-    const nombreSeguro =
-        String(
-            nombreArchivo ||
-            `media_${mediaId}`
-        )
-        .replace(
-            /[^a-zA-Z0-9._-]/g,
-            "_"
-        );
-
-    const timestamp =
-        Date.now();
-
-    const ruta =
-        `${timestamp}_${mediaId}_${nombreSeguro}`;
-
-    const {
-        error
-    } =
-        await supabase.storage
-            .from(
-                WHATSAPP_MEDIA_BUCKET
-            )
-            .upload(
-                ruta,
-                buffer,
-                {
-                    contentType:
-                        mimeType,
-
-                    upsert:
-                        false
-                }
-            );
-
-    if (error) {
-
-        throw new Error(
-            "Error guardando multimedia en Supabase Storage: " +
-            error.message
-        );
-    }
-
-    const {
-        data
-    } =
-        supabase.storage
-            .from(
-                WHATSAPP_MEDIA_BUCKET
-            )
-            .getPublicUrl(
-                ruta
-            );
-
-    return {
-
-        ruta: ruta,
-
-        url:
-            data?.publicUrl ||
-            null,
-
-        extension:
-            extension
-    };
+    return id;
 }
 
 // =====================================================
-// CREAR BUCKET MULTIMEDIA
+// ASEGURAR BUCKET MULTIMEDIA
 // =====================================================
 
 async function asegurarBucketMultimedia() {
@@ -386,31 +179,19 @@ async function asegurarBucketMultimedia() {
     try {
 
         const {
-            data: buckets,
+            data,
             error
         } =
             await supabase
                 .storage
-                .listBuckets();
-
-        if (error) {
-
-            console.log(
-                "No se pudieron consultar los buckets de Supabase:",
-                error.message
-            );
-
-            return;
-        }
-
-        const existe =
-            buckets.some(
-                bucket =>
-                    bucket.name ===
+                .getBucket(
                     WHATSAPP_MEDIA_BUCKET
-            );
+                );
 
-        if (existe) {
+        if (
+            data &&
+            !error
+        ) {
 
             console.log(
                 `Bucket "${WHATSAPP_MEDIA_BUCKET}" encontrado.`
@@ -419,1938 +200,51 @@ async function asegurarBucketMultimedia() {
             return;
         }
 
-        const {
-            error: crearError
-        } =
+        const resultado =
             await supabase
                 .storage
                 .createBucket(
                     WHATSAPP_MEDIA_BUCKET,
                     {
-                        public: true
+                        public: false
                     }
                 );
 
-        if (crearError) {
+        if (
+            resultado.error &&
+            !resultado.error.message
+                .toLowerCase()
+                .includes("already exists")
+        ) {
 
-            console.log(
-                "No se pudo crear el bucket multimedia:",
-                crearError.message
+            console.error(
+                "Error creando bucket:",
+                resultado.error
             );
 
             return;
         }
 
         console.log(
-            `Bucket "${WHATSAPP_MEDIA_BUCKET}" creado correctamente.`
+            `Bucket "${WHATSAPP_MEDIA_BUCKET}" preparado.`
         );
 
     } catch (error) {
 
-        console.log(
-            "Error comprobando bucket multimedia:",
-            error.message
+        console.error(
+            "Error verificando bucket multimedia:",
+            error
         );
     }
 }
 
 // =====================================================
-// TEXTO DE MENSAJE
+// WHATSAPP - ENVIAR TEXTO
 // =====================================================
 
-function obtenerTextoMensaje(
-    message
-) {
-
-    if (
-        !message ||
-        !message.type
-    ) {
-
-        return "";
-    }
-
-    switch (
-        message.type
-    ) {
-
-        case "text":
-
-            return (
-                message.text?.body ||
-                ""
-            );
-
-        case "image":
-
-            return (
-                message.image?.caption ||
-                ""
-            );
-
-        case "video":
-
-            return (
-                message.video?.caption ||
-                ""
-            );
-
-        case "document":
-
-            return (
-                message.document?.caption ||
-                ""
-            );
-
-        case "audio":
-
-            return "";
-
-        case "sticker":
-
-            return "";
-
-        default:
-
-            return "";
-    }
-}
-
-// =====================================================
-// OBTENER INFORMACIÓN MULTIMEDIA
-// =====================================================
-
-function obtenerInformacionMedia(
-    message
-) {
-
-    if (
-        !message ||
-        !message.type
-    ) {
-
-        return null;
-    }
-
-    let media = null;
-
-    switch (
-        message.type
-    ) {
-
-        case "image":
-
-            media =
-                message.image;
-
-            break;
-
-        case "video":
-
-            media =
-                message.video;
-
-            break;
-
-        case "audio":
-
-            media =
-                message.audio;
-
-            break;
-
-        case "document":
-
-            media =
-                message.document;
-
-            break;
-
-        case "sticker":
-
-            media =
-                message.sticker;
-
-            break;
-
-        default:
-
-            return null;
-    }
-
-    if (!media) {
-
-        return null;
-    }
-
-    return {
-
-        mediaId:
-            media.id ||
-            null,
-
-        mimeType:
-            media.mime_type ||
-            null,
-
-        sha256:
-            media.sha256 ||
-            null,
-
-        filename:
-            media.filename ||
-            null,
-
-        caption:
-            media.caption ||
-            ""
-    };
-}
-
-// =====================================================
-// DESCRIPCIÓN DEL MENSAJE
-// =====================================================
-
-function obtenerDescripcionMensaje(
-    message,
-    mediaInfo = null
-) {
-
-    if (
-        !message ||
-        !message.type
-    ) {
-
-        return "";
-    }
-
-    const tipo =
-        message.type;
-
-    if (tipo === "text") {
-
-        return (
-            message.text?.body ||
-            ""
-        );
-    }
-
-    if (mediaInfo) {
-
-        if (
-            mediaInfo.caption
-        ) {
-
-            return mediaInfo.caption;
-        }
-
-        if (
-            mediaInfo.filename
-        ) {
-
-            return mediaInfo.filename;
-        }
-    }
-
-    return `[Mensaje de tipo ${tipo}]`;
-}
-
-// =====================================================
-// PROCESAR MULTIMEDIA
-// =====================================================
-
-async function procesarMultimedia(
-    message
-) {
-
-    const mediaInfo =
-        obtenerInformacionMedia(
-            message
-        );
-
-    if (!mediaInfo) {
-
-        return null;
-    }
-
-    if (!mediaInfo.mediaId) {
-
-        throw new Error(
-            "El mensaje multimedia no contiene media_id."
-        );
-    }
-
-    console.log(
-        `Procesando multimedia: ${message.type} - ${mediaInfo.mediaId}`
-    );
-
-    const descargado =
-        await descargarMediaWhatsApp(
-            mediaInfo.mediaId
-        );
-
-    const mimeType =
-        mediaInfo.mimeType ||
-        descargado.mimeType;
-
-    const guardado =
-        await guardarMediaWhatsApp(
-            mediaInfo.mediaId,
-            mimeType,
-            mediaInfo.filename,
-            descargado.buffer
-        );
-
-    console.log(
-        "Multimedia guardada:",
-        guardado.url
-    );
-
-    return {
-
-        media_id:
-            mediaInfo.mediaId,
-
-        media_url:
-            guardado.url,
-
-        media_path:
-            guardado.ruta,
-
-        mime_type:
-            mimeType,
-
-        nombre_archivo:
-            mediaInfo.filename ||
-            null,
-
-        sha256:
-            mediaInfo.sha256 ||
-            descargado.sha256 ||
-            null,
-
-        extension:
-            guardado.extension
-    };
-}
-
-// =====================================================
-// OBTENER NÚMERO DE TELÉFONO DEL CONTACTO
-// =====================================================
-
-function obtenerTelefonoContacto(
-    value
-) {
-
-    if (!value) {
-        return "";
-    }
-
-    return String(value).trim();
-}
-
-// =====================================================
-// OBTENER NOMBRE DEL CONTACTO
-// =====================================================
-
-function obtenerNombreContacto(
-    contact
-) {
-
-    if (!contact) {
-        return "Cliente";
-    }
-
-    return (
-        contact.profile?.name ||
-        contact.wa_id ||
-        "Cliente"
-    );
-}
-
-// =====================================================
-// BUSCAR CLIENTE POR TELÉFONO
-// =====================================================
-
-async function buscarClientePorTelefono(
-    telefono
-) {
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("clientes")
-            .select("*")
-            .eq(
-                "telefono",
-                telefono
-            )
-            .maybeSingle();
-
-    if (error) {
-
-        throw new Error(
-            "Error buscando cliente: " +
-            error.message
-        );
-    }
-
-    return data;
-}
-
-// =====================================================
-// CREAR CLIENTE
-// =====================================================
-
-async function crearCliente(
+async function enviarWhatsApp(
     telefono,
-    nombre
-) {
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("clientes")
-            .insert(
-                {
-                    telefono:
-                        telefono,
-
-                    nombre:
-                        nombre,
-
-                    activo:
-                        true,
-
-                    baja_comunicaciones:
-                        false
-                }
-            )
-            .select("*")
-            .single();
-
-    if (error) {
-
-        throw new Error(
-            "Error creando cliente: " +
-            error.message
-        );
-    }
-
-    return data;
-}
-
-// =====================================================
-// OBTENER O CREAR CLIENTE
-// =====================================================
-
-async function obtenerOCrearCliente(
-    telefono,
-    nombre
-) {
-
-    let cliente =
-        await buscarClientePorTelefono(
-            telefono
-        );
-
-    if (cliente) {
-
-        // Actualizar nombre si tenemos
-        // un nombre nuevo y el actual está vacío.
-        if (
-            nombre &&
-            (
-                !cliente.nombre ||
-                cliente.nombre === "Cliente"
-            )
-        ) {
-
-            const {
-                data,
-                error
-            } =
-                await supabase
-                    .from("clientes")
-                    .update(
-                        {
-                            nombre:
-                                nombre,
-
-                            ultima_interaccion:
-                                new Date().toISOString()
-                        }
-                    )
-                    .eq(
-                        "id",
-                        cliente.id
-                    )
-                    .select("*")
-                    .single();
-
-            if (!error && data) {
-
-                cliente = data;
-            }
-        }
-
-        return cliente;
-    }
-
-    return await crearCliente(
-        telefono,
-        nombre
-    );
-}
-
-// =====================================================
-// BUSCAR CONVERSACIÓN ABIERTA
-// =====================================================
-
-async function buscarConversacion(
-    clienteId
-) {
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("conversaciones")
-            .select("*")
-            .eq(
-                "cliente_id",
-                clienteId
-            )
-            .neq(
-                "estado",
-                "cerrada"
-            )
-            .order(
-                "ultima_interaccion",
-                {
-                    ascending: false
-                }
-            )
-            .limit(1)
-            .maybeSingle();
-
-    if (error) {
-
-        throw new Error(
-            "Error buscando conversación: " +
-            error.message
-        );
-    }
-
-    return data;
-}
-
-// =====================================================
-// CREAR CONVERSACIÓN
-// =====================================================
-
-async function crearConversacion(
-    clienteId
-) {
-
-    const ahora =
-        new Date().toISOString();
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("conversaciones")
-            .insert(
-                {
-                    cliente_id:
-                        clienteId,
-
-                    estado:
-                        "abierta",
-
-                    ultima_interaccion:
-                        ahora
-                }
-            )
-            .select("*")
-            .single();
-
-    if (error) {
-
-        throw new Error(
-            "Error creando conversación: " +
-            error.message
-        );
-    }
-
-    return data;
-}
-
-// =====================================================
-// OBTENER O CREAR CONVERSACIÓN
-// =====================================================
-
-async function obtenerOCrearConversacion(
-    clienteId
-) {
-
-    let conversacion =
-        await buscarConversacion(
-            clienteId
-        );
-
-    if (conversacion) {
-
-        return conversacion;
-    }
-
-    return await crearConversacion(
-        clienteId
-    );
-}
-
-// =====================================================
-// BUSCAR TICKET POR CONVERSACIÓN
-// =====================================================
-
-async function buscarTicketPorConversacion(
-    conversacionId
-) {
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("conversaciones")
-            .select(`
-                *,
-                cliente:clientes(
-                    id,
-                    nombre,
-                    telefono,
-                    empresa
-                ),
-                agente:agentes(
-                    id,
-                    nombre,
-                    rol,
-                    area,
-                    activo
-                )
-            `)
-            .eq(
-                "id",
-                conversacionId
-            )
-            .maybeSingle();
-
-    if (error) {
-
-        throw new Error(
-            "Error buscando ticket: " +
-            error.message
-        );
-    }
-
-    return data;
-}
-
-// =====================================================
-// OBTENER O CREAR TICKET
-// =====================================================
-
-async function obtenerOCrearTicket(
-    clienteId,
-    conversacionId
-) {
-
-    const ticket =
-        await buscarTicketPorConversacion(
-            conversacionId
-        );
-
-    if (ticket) {
-
-        return ticket;
-    }
-
-    return await crearConversacion(
-        clienteId
-    );
-}
-
-// =====================================================
-// GUARDAR MENSAJE
-// =====================================================
-
-async function guardarMensaje(
-    {
-        clienteId,
-        conversacionId,
-        whatsappMessageId,
-        direccion,
-        tipo,
-        contenido,
-        estado,
-        recibidoEn,
-        multimedia
-    }
-) {
-
-    const datosMensaje = {
-
-        cliente_id:
-            clienteId,
-
-        conversacion_id:
-            conversacionId,
-
-        whatsapp_message_id:
-            whatsappMessageId,
-
-        direccion:
-            direccion,
-
-        tipo:
-            tipo,
-
-        contenido:
-            contenido,
-
-        estado:
-            estado,
-
-        recibido_en:
-            recibidoEn
-    };
-
-    /*
-     * La tabla mensajes actual no necesita
-     * nuevas columnas para multimedia.
-     *
-     * Guardamos la información del archivo
-     * dentro de contenido como JSON.
-     */
-
-    if (multimedia) {
-
-        datosMensaje.contenido =
-            JSON.stringify(
-                {
-                    texto:
-                        contenido || "",
-
-                    media_id:
-                        multimedia.media_id,
-
-                    media_url:
-                        multimedia.media_url,
-
-                    media_path:
-                        multimedia.media_path,
-
-                    mime_type:
-                        multimedia.mime_type,
-
-                    nombre_archivo:
-                        multimedia.nombre_archivo,
-
-                    extension:
-                        multimedia.extension,
-
-                    sha256:
-                        multimedia.sha256
-                }
-            );
-    }
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("mensajes")
-            .insert(
-                datosMensaje
-            )
-            .select("*")
-            .single();
-
-    if (error) {
-
-        throw new Error(
-            "Error guardando mensaje: " +
-            error.message
-        );
-    }
-
-    return data;
-}
-
-
-// =====================================================
-// ACTUALIZAR CLIENTE
-// =====================================================
-
-async function actualizarInteraccionCliente(
-    clienteId
-) {
-
-    const {
-        error
-    } =
-        await supabase
-            .from("clientes")
-            .update(
-                {
-                    ultima_interaccion:
-                        new Date().toISOString()
-                }
-            )
-            .eq(
-                "id",
-                clienteId
-            );
-
-    if (error) {
-
-        console.log(
-            "No se pudo actualizar última interacción del cliente:",
-            error.message
-        );
-    }
-}
-
-// =====================================================
-// ACTUALIZAR CONVERSACIÓN
-// =====================================================
-
-async function actualizarInteraccionConversacion(
-    conversacionId
-) {
-
-    const {
-        error
-    } =
-        await supabase
-            .from("conversaciones")
-            .update(
-                {
-                    estado:
-                        "abierta",
-
-                    ultima_interaccion:
-                        new Date().toISOString()
-                }
-            )
-            .eq(
-                "id",
-                conversacionId
-            );
-
-    if (error) {
-
-        console.log(
-            "No se pudo actualizar conversación:",
-            error.message
-        );
-    }
-}
-
-// =====================================================
-// REGISTRAR HISTORIAL
-// =====================================================
-
-async function registrarHistorial(
-    conversacionId,
-    agenteId,
-    accion,
-    detalle
-) {
-
-    const {
-        error
-    } =
-        await supabase
-            .from("ticket_historial")
-            .insert(
-                {
-                    conversacion_id:
-                        conversacionId,
-
-                    agente_id:
-                        agenteId || null,
-
-                    accion:
-                        accion,
-
-                    detalle:
-                        detalle,
-
-                    creado_en:
-                        new Date().toISOString()
-                }
-            );
-
-    if (error) {
-
-        console.log(
-            "No se pudo registrar historial:",
-            error.message
-        );
-    }
-}
-
-// =====================================================
-// PROCESAR MENSAJE ENTRANTE
-// =====================================================
-
-async function procesarMensajeEntrante(
-    message,
-    contacto
-) {
-
-    const telefono =
-        obtenerTelefonoContacto(
-            message.from
-        );
-
-    if (!telefono) {
-
-        throw new Error(
-            "El mensaje no contiene número de teléfono."
-        );
-    }
-
-    const nombre =
-        obtenerNombreContacto(
-            contacto
-        );
-
-    console.log(
-        "Cliente:",
-        nombre
-    );
-
-    console.log(
-        "Teléfono:",
-        telefono
-    );
-
-    console.log(
-        "Tipo de mensaje:",
-        message.type
-    );
-
-    // =================================================
-    // CLIENTE
-    // =================================================
-
-    const cliente =
-        await obtenerOCrearCliente(
-            telefono,
-            nombre
-        );
-
-    // =================================================
-    // CONVERSACIÓN
-    // =================================================
-
-    const conversacion =
-        await obtenerOCrearConversacion(
-            cliente.id
-        );
-
-    // =================================================
-    // TICKET
-    // =================================================
-
-    const ticket =
-        await obtenerOCrearTicket(
-            cliente.id,
-            conversacion.id
-        );
-
-    // =================================================
-    // MULTIMEDIA
-    // =================================================
-
-    let multimedia = null;
-
-    if (
-        message.type !==
-        "text"
-    ) {
-
-        try {
-
-            multimedia =
-                await procesarMultimedia(
-                    message
-                );
-
-        } catch (error) {
-
-            console.error(
-                "Error procesando multimedia:",
-                error.message
-            );
-
-            /*
-             * Si falla la descarga del archivo,
-             * no perdemos el mensaje.
-             */
-            multimedia = null;
-        }
-    }
-
-    // =================================================
-    // CONTENIDO
-    // =================================================
-
-    let contenido =
-        obtenerDescripcionMensaje(
-            message,
-            obtenerInformacionMedia(
-                message
-            )
-        );
-
-    if (
-        multimedia &&
-        multimedia.nombre_archivo
-    ) {
-
-        contenido =
-            multimedia.nombre_archivo;
-
-    } else if (
-        message.type ===
-        "image"
-    ) {
-
-        contenido =
-            "[Imagen recibida]";
-
-    } else if (
-        message.type ===
-        "video"
-    ) {
-
-        contenido =
-            "[Video recibido]";
-
-    } else if (
-        message.type ===
-        "audio"
-    ) {
-
-        contenido =
-            "[Audio recibido]";
-
-    } else if (
-        message.type ===
-        "document"
-    ) {
-
-        contenido =
-            "[Documento recibido]";
-
-    } else if (
-        message.type ===
-        "sticker"
-    ) {
-
-        contenido =
-            "[Sticker recibido]";
-    }
-
-    // =================================================
-    // GUARDAR MENSAJE
-    // =================================================
-
-    await guardarMensaje(
-        {
-            clienteId:
-                cliente.id,
-
-            conversacionId:
-                conversacion.id,
-
-            whatsappMessageId:
-                message.id,
-
-            direccion:
-                "entrante",
-
-            tipo:
-                message.type,
-
-            contenido:
-                contenido,
-
-            estado:
-                "recibido",
-
-            recibidoEn:
-                new Date().toISOString(),
-
-            multimedia:
-                multimedia
-        }
-    );
-
-    // =================================================
-    // ACTUALIZAR FECHAS
-    // =================================================
-
-    await actualizarInteraccionCliente(
-        cliente.id
-    );
-
-    await actualizarInteraccionConversacion(
-        conversacion.id
-    );
-
-    // =================================================
-    // HISTORIAL
-    // =================================================
-
-    await registrarHistorial(
-        conversacion.id,
-        null,
-        "mensaje_recibido",
-        multimedia
-            ? `Mensaje multimedia recibido (${message.type}).`
-            : "Mensaje recibido desde WhatsApp."
-    );
-
-    return {
-
-        cliente:
-            cliente,
-
-        conversacion:
-            conversacion,
-
-        ticket:
-            ticket,
-
-        multimedia:
-            multimedia
-    };
-}
-
-// =====================================================
-// PROCESAR EVENTO DE WHATSAPP
-// =====================================================
-
-async function procesarEventoWhatsApp(
-    body
-) {
-
-    if (
-        !body ||
-        body.object !==
-        "whatsapp_business_account"
-    ) {
-
-        return;
-    }
-
-    const entries =
-        body.entry || [];
-
-    for (
-        const entry
-        of entries
-    ) {
-
-        const changes =
-            entry.changes || [];
-
-        for (
-            const change
-            of changes
-        ) {
-
-            const value =
-                change.value;
-
-            if (!value) {
-
-                continue;
-            }
-
-            const contactos =
-                value.contacts || [];
-
-            const mensajes =
-                value.messages || [];
-
-            for (
-                const message
-                of mensajes
-            ) {
-
-                let contacto =
-                    contactos.find(
-                        c =>
-                            c.wa_id ===
-                            message.from
-                    );
-
-                if (!contacto) {
-
-                    contacto =
-                        contactos[0] ||
-                        null;
-                }
-
-                try {
-
-                    await procesarMensajeEntrante(
-                        message,
-                        contacto
-                    );
-
-                    console.log(
-                        "Mensaje procesado correctamente:",
-                        message.id
-                    );
-
-                } catch (error) {
-
-                    console.error(
-                        "Error procesando mensaje:",
-                        error
-                    );
-                }
-            }
-        }
-    }
-}
-
-// =====================================================
-// OBTENER TICKETS
-// =====================================================
-
-async function obtenerTickets() {
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("conversaciones")
-            .select(`
-                *,
-                cliente:clientes(
-                    id,
-                    nombre,
-                    telefono,
-                    empresa
-                ),
-                agente:agentes(
-                    id,
-                    nombre,
-                    rol,
-                    area,
-                    activo
-                )
-            `)
-            .order(
-                "creado_en",
-                {
-                    ascending: false
-                }
-            );
-
-    if (error) {
-
-        throw new Error(
-            "Error obteniendo tickets: " +
-            error.message
-        );
-    }
-
-    return data || [];
-}
-
-// =====================================================
-// OBTENER TICKET POR ID
-// =====================================================
-
-async function obtenerTicketPorId(
-    id
-) {
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("conversaciones")
-            .select(`
-                *,
-                cliente:clientes(
-                    id,
-                    nombre,
-                    telefono,
-                    empresa
-                ),
-                agente:agentes(
-                    id,
-                    nombre,
-                    rol,
-                    area,
-                    activo
-                )
-            `)
-            .eq(
-                "id",
-                id
-            )
-            .maybeSingle();
-
-    if (error) {
-
-        throw new Error(
-            "Error consultando ticket: " +
-            error.message
-        );
-    }
-
-    return data;
-}
-
-// =====================================================
-// OBTENER MENSAJES DEL TICKET
-// =====================================================
-
-async function obtenerMensajesTicket(
-    ticket
-) {
-
-    if (!ticket) {
-
-        return [];
-    }
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("mensajes")
-            .select("*")
-            .eq(
-                "conversacion_id",
-                ticket.id
-            )
-            .order(
-                "recibido_en",
-                {
-                    ascending: true
-                }
-            );
-
-    if (error) {
-
-        throw new Error(
-            "Error obteniendo mensajes: " +
-            error.message
-        );
-    }
-
-    return data || [];
-}
-
-// =====================================================
-// NORMALIZAR MENSAJE PARA EL C#
-// =====================================================
-
-function normalizarMensajeParaCliente(
     mensaje
-) {
-
-    if (!mensaje) {
-
-        return mensaje;
-    }
-
-    const resultado = {
-        ...mensaje
-    };
-
-    // -------------------------------------------------
-    // Mensajes de texto normales
-    // -------------------------------------------------
-
-    if (
-        mensaje.tipo ===
-        "text"
-    ) {
-
-        return resultado;
-    }
-
-    // -------------------------------------------------
-    // Intentar interpretar multimedia
-    // -------------------------------------------------
-
-    if (
-        mensaje.contenido &&
-        typeof mensaje.contenido ===
-        "string"
-    ) {
-
-        try {
-
-            const multimedia =
-                JSON.parse(
-                    mensaje.contenido
-                );
-
-            if (
-                multimedia &&
-                typeof multimedia ===
-                "object"
-            ) {
-
-                if (
-                    multimedia.media_url
-                ) {
-
-                    resultado.media_url =
-                        multimedia.media_url;
-                }
-
-                if (
-                    multimedia.media_path
-                ) {
-
-                    resultado.media_path =
-                        multimedia.media_path;
-                }
-
-                if (
-                    multimedia.mime_type
-                ) {
-
-                    resultado.mime_type =
-                        multimedia.mime_type;
-                }
-
-                if (
-                    multimedia.nombre_archivo
-                ) {
-
-                    resultado.nombre_archivo =
-                        multimedia.nombre_archivo;
-                }
-
-                if (
-                    multimedia.media_id
-                ) {
-
-                    resultado.media_id =
-                        multimedia.media_id;
-                }
-
-                resultado.texto =
-                    multimedia.texto ||
-                    "";
-
-                return resultado;
-            }
-
-        } catch {
-            // No era JSON multimedia.
-        }
-    }
-
-    return resultado;
-}
-
-// =====================================================
-// OBTENER AGENTES
-// =====================================================
-
-async function obtenerAgentes() {
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("agentes")
-            .select("*")
-            .order(
-                "id",
-                {
-                    ascending: true
-                }
-            );
-
-    if (error) {
-
-        throw new Error(
-            "Error obteniendo agentes: " +
-            error.message
-        );
-    }
-
-    return data || [];
-}
-
-
-// =====================================================
-// ASIGNAR AGENTE
-// =====================================================
-
-async function asignarAgente(
-    ticketId,
-    agenteId
-) {
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("conversaciones")
-            .update(
-                {
-                    agente_id:
-                        agenteId,
-
-                    ultima_interaccion:
-                        new Date().toISOString()
-                }
-            )
-            .eq(
-                "id",
-                ticketId
-            )
-            .select(`
-                *,
-                cliente:clientes(
-                    id,
-                    nombre,
-                    telefono,
-                    empresa
-                ),
-                agente:agentes(
-                    id,
-                    nombre,
-                    rol,
-                    area,
-                    activo
-                )
-            `)
-            .single();
-
-    if (error) {
-
-        throw new Error(
-            "Error asignando agente: " +
-            error.message
-        );
-    }
-
-    return data;
-}
-
-// =====================================================
-// ACTUALIZAR ESTADO
-// =====================================================
-
-async function actualizarEstadoTicket(
-    ticketId,
-    estado
-) {
-
-    const estadosValidos = [
-        "abierta",
-        "en_proceso",
-        "cerrada"
-    ];
-
-    if (
-        !estadosValidos.includes(
-            estado
-        )
-    ) {
-
-        throw new Error(
-            "Estado no válido."
-        );
-    }
-
-    const ahora =
-        new Date().toISOString();
-
-    const datos = {
-
-        estado:
-            estado,
-
-        ultima_interaccion:
-            ahora
-    };
-
-    if (
-        estado ===
-        "cerrada"
-    ) {
-
-        datos.cerrado_en =
-            ahora;
-
-    } else {
-
-        datos.cerrado_en =
-            null;
-    }
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("conversaciones")
-            .update(
-                datos
-            )
-            .eq(
-                "id",
-                ticketId
-            )
-            .select(`
-                *,
-                cliente:clientes(
-                    id,
-                    nombre,
-                    telefono,
-                    empresa
-                ),
-                agente:agentes(
-                    id,
-                    nombre,
-                    rol,
-                    area,
-                    activo
-                )
-            `)
-            .single();
-
-    if (error) {
-
-        throw new Error(
-            "Error actualizando estado: " +
-            error.message
-        );
-    }
-
-    return data;
-}
-
-// =====================================================
-// ACTUALIZAR PRIORIDAD
-// =====================================================
-
-async function actualizarPrioridadTicket(
-    ticketId,
-    prioridad
-) {
-
-    const prioridadesValidas = [
-        "baja",
-        "normal",
-        "alta",
-        "urgente"
-    ];
-
-    const prioridadNormalizada =
-        String(
-            prioridad || ""
-        )
-        .trim()
-        .toLowerCase();
-
-    if (
-        !prioridadesValidas.includes(
-            prioridadNormalizada
-        )
-    ) {
-
-        throw new Error(
-            "Prioridad no válida."
-        );
-    }
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("conversaciones")
-            .update(
-                {
-                    prioridad:
-                        prioridadNormalizada,
-
-                    ultima_interaccion:
-                        new Date().toISOString()
-                }
-            )
-            .eq(
-                "id",
-                ticketId
-            )
-            .select(`
-                *,
-                cliente:clientes(
-                    id,
-                    nombre,
-                    telefono,
-                    empresa
-                ),
-                agente:agentes(
-                    id,
-                    nombre,
-                    rol,
-                    area,
-                    activo
-                )
-            `)
-            .single();
-
-    if (error) {
-
-        throw new Error(
-            "Error actualizando prioridad: " +
-            error.message
-        );
-    }
-
-    return data;
-}
-
-// =====================================================
-// ACTUALIZAR CATEGORÍA
-// =====================================================
-
-async function actualizarCategoriaTicket(
-    ticketId,
-    categoria
-) {
-
-    const categoriaNormalizada =
-        categoria == null
-            ? null
-            : String(
-                categoria
-            ).trim();
-
-    const {
-        data,
-        error
-    } =
-        await supabase
-            .from("conversaciones")
-            .update(
-                {
-                    categoria:
-                        categoriaNormalizada,
-
-                    ultima_interaccion:
-                        new Date().toISOString()
-                }
-            )
-            .eq(
-                "id",
-                ticketId
-            )
-            .select(`
-                *,
-                cliente:clientes(
-                    id,
-                    nombre,
-                    telefono,
-                    empresa
-                ),
-                agente:agentes(
-                    id,
-                    nombre,
-                    rol,
-                    area,
-                    activo
-                )
-            `)
-            .single();
-
-    if (error) {
-
-        throw new Error(
-            "Error actualizando categoría: " +
-            error.message
-        );
-    }
-
-    return data;
-}
-
-// =====================================================
-// CERRAR TICKET
-// =====================================================
-
-async function cerrarTicket(
-    ticketId,
-    agenteId
-) {
-
-    const ahora =
-        new Date().toISOString();
-
-    // -------------------------------------------------
-    // Obtener ticket actual
-    // -------------------------------------------------
-
-    const ticketActual =
-        await obtenerTicketPorId(
-            ticketId
-        );
-
-    if (!ticketActual) {
-
-        throw new Error(
-            "Ticket no encontrado."
-        );
-    }
-
-    // -------------------------------------------------
-    // Actualizar conversación/ticket
-    // -------------------------------------------------
-
-    const {
-        data: ticket,
-        error
-    } =
-        await supabase
-            .from("conversaciones")
-            .update(
-                {
-                    estado:
-                        "cerrada",
-
-                    cerrado_en:
-                        ahora,
-
-                    ultima_interaccion:
-                        ahora,
-
-                    agente_id:
-                        agenteId || null
-                }
-            )
-            .eq(
-                "id",
-                ticketId
-            )
-            .select(`
-                *,
-                cliente:clientes(
-                    id,
-                    nombre,
-                    telefono,
-                    empresa
-                ),
-                agente:agentes(
-                    id,
-                    nombre,
-                    rol,
-                    area,
-                    activo
-                )
-            `)
-            .single();
-
-    if (error) {
-
-        throw new Error(
-            "Error cerrando ticket: " +
-            error.message
-        );
-    }
-
-    // -------------------------------------------------
-    // Historial
-    // -------------------------------------------------
-
-    await registrarHistorial(
-        ticketId,
-        agenteId,
-        "ticket_cerrado",
-        "El ticket fue cerrado por el agente."
-    );
-
-    // -------------------------------------------------
-    // Enviar mensaje de cierre
-    // -------------------------------------------------
-
-    if (
-        ticket.cliente &&
-        ticket.cliente.telefono
-    ) {
-
-        const telefono =
-            ticket.cliente.telefono;
-
-        const mensaje =
-            `Tu ticket #${ticket.numero_ticket} fue cerrado correctamente. Gracias por comunicarte con TR Soporte. Si lo deseas, puedes calificar la atención recibida.`;
-
-        try {
-
-            await enviarMensajeWhatsApp(
-                telefono,
-                mensaje,
-                ticket.cliente_id,
-                ticket.id,
-                agenteId
-            );
-
-        } catch (errorMensaje) {
-
-            console.error(
-                "No se pudo enviar mensaje de cierre:",
-                errorMensaje.message
-            );
-        }
-    }
-
-    return ticket;
-}
-
-// =====================================================
-// ENVIAR MENSAJE DE WHATSAPP
-// =====================================================
-
-async function enviarMensajeWhatsApp(
-    telefono,
-    mensaje,
-    clienteId = null,
-    conversacionId = null,
-    agenteId = null
 ) {
 
     if (!ACCESS_TOKEN) {
@@ -2367,42 +261,21 @@ async function enviarMensajeWhatsApp(
         );
     }
 
-    const endpoint =
+    const whatsappUrl =
         `https://graph.facebook.com/v26.0/${PHONE_NUMBER_ID}/messages`;
 
-    const body = {
-
-        messaging_product:
-            "whatsapp",
-
-        recipient_type:
-            "individual",
-
-        to:
-            telefono,
-
-        type:
-            "text",
-
-        text: {
-
-            preview_url:
-                false,
-
-            body:
-                mensaje
-        }
-    };
+    console.log(
+        "Enviando WhatsApp a:",
+        telefono
+    );
 
     const response =
         await fetch(
-            endpoint,
+            whatsappUrl,
             {
-                method:
-                    "POST",
+                method: "POST",
 
                 headers: {
-
                     "Authorization":
                         `Bearer ${ACCESS_TOKEN}`,
 
@@ -2411,45 +284,78 @@ async function enviarMensajeWhatsApp(
                 },
 
                 body:
-                    JSON.stringify(
-                        body
-                    )
+                    JSON.stringify({
+
+                        messaging_product:
+                            "whatsapp",
+
+                        recipient_type:
+                            "individual",
+
+                        to:
+                            telefono,
+
+                        type:
+                            "text",
+
+                        text: {
+
+                            preview_url:
+                                false,
+
+                            body:
+                                mensaje
+                        }
+                    })
             }
         );
 
-    const respuesta =
+    const result =
         await response.json();
+
+    console.log(
+        "Respuesta de Meta:",
+        JSON.stringify(
+            result
+        )
+    );
 
     if (!response.ok) {
 
         throw new Error(
-            respuesta?.error?.message ||
-            "Error enviando mensaje de WhatsApp."
+            result?.error?.message ||
+            "Meta rechazó el mensaje."
         );
     }
 
-    // -------------------------------------------------
-    // Guardar mensaje saliente
-    // -------------------------------------------------
+    return result;
+}
 
-    if (
-        clienteId &&
-        conversacionId
-    ) {
+// =====================================================
+// GUARDAR MENSAJE SALIENTE
+// =====================================================
 
-        const whatsappMessageId =
-            respuesta?.messages?.[0]?.id ||
-            null;
+async function guardarMensajeSaliente(
+    conversacion,
+    mensaje,
+    agenteId = null,
+    whatsappMessageId = null
+) {
 
-        await guardarMensaje(
-            {
-                clienteId:
-                    clienteId,
+    const {
+        error: errorMensaje
+    } =
+        await supabase
+            .from("mensajes")
+            .insert({
 
-                conversacionId:
-                    conversacionId,
+                cliente_id:
+                    conversacion.cliente_id,
 
-                whatsappMessageId:
+                conversacion_id:
+                    conversacion.id,
+
+                whatsapp_message_id:
                     whatsappMessageId,
 
                 direccion:
@@ -2462,85 +368,932 @@ async function enviarMensajeWhatsApp(
                     mensaje,
 
                 estado:
-                    "enviado",
+                    "enviado"
+            });
 
-                recibidoEn:
-                    new Date().toISOString(),
+    if (errorMensaje) {
 
-                multimedia:
-                    null
-            }
-        );
-
-        await registrarHistorial(
-            conversacionId,
-            agenteId,
-            "mensaje_enviado",
-            "El agente envió un mensaje al cliente por WhatsApp."
-        );
+        throw errorMensaje;
     }
 
-    return respuesta;
+    const {
+        error:
+            errorActualizacion
+    } =
+        await supabase
+            .from("conversaciones")
+            .update({
+
+                ultima_interaccion:
+                    new Date()
+                        .toISOString()
+            })
+            .eq(
+                "id",
+                conversacion.id
+            );
+
+    if (errorActualizacion) {
+
+        throw errorActualizacion;
+    }
+
+    await registrarHistorial(
+        conversacion.id,
+        agenteId,
+        "mensaje_enviado",
+        agenteId
+            ? "El agente envió un mensaje al cliente por WhatsApp."
+            : "Mensaje automático enviado al cliente por WhatsApp."
+    );
 }
 
 // =====================================================
-// BUSCAR TICKETS
+// HISTORIAL
 // =====================================================
 
-async function buscarTickets(
-    texto
+async function registrarHistorial(
+    conversacionId,
+    agenteId,
+    accion,
+    detalle
 ) {
 
-    const textoBusqueda =
-        String(
-            texto || ""
-        ).trim();
+    const {
+        error
+    } =
+        await supabase
+            .from("ticket_historial")
+            .insert({
 
-    if (!textoBusqueda) {
+                conversacion_id:
+                    conversacionId,
 
-        return await obtenerTickets();
+                agente_id:
+                    agenteId || null,
+
+                accion:
+                    accion,
+
+                detalle:
+                    detalle
+            });
+
+    if (error) {
+
+        throw error;
+    }
+}
+
+// =====================================================
+// OBTENER AGENTE
+// =====================================================
+
+async function obtenerAgente(
+    agenteId
+) {
+
+    const {
+        data,
+        error
+    } =
+        await supabase
+            .from("agentes")
+            .select("*")
+            .eq(
+                "id",
+                agenteId
+            )
+            .maybeSingle();
+
+    if (error) {
+
+        throw error;
     }
 
-    // -------------------------------------------------
-    // Primero buscamos por número de ticket
-    // -------------------------------------------------
+    return data;
+}
 
-    const numero =
-        Number(
-            textoBusqueda
+// =====================================================
+// DESCARGAR MEDIA DESDE WHATSAPP
+// =====================================================
+
+async function descargarMediaWhatsApp(
+    mediaId
+) {
+
+    if (!mediaId) {
+
+        throw new Error(
+            "No se recibió media_id."
+        );
+    }
+
+    const infoUrl =
+        `https://graph.facebook.com/v26.0/${mediaId}`;
+
+    const infoResponse =
+        await fetch(
+            infoUrl,
+            {
+                method: "GET",
+
+                headers: {
+                    "Authorization":
+                        `Bearer ${ACCESS_TOKEN}`
+                }
+            }
         );
 
+    const info =
+        await infoResponse.json();
+
+    if (!infoResponse.ok) {
+
+        throw new Error(
+            info?.error?.message ||
+            "No se pudo obtener información del archivo multimedia."
+        );
+    }
+
+    const mediaUrl =
+        info.url;
+
+    const mimeType =
+        info.mime_type ||
+        "application/octet-stream";
+
+    if (!mediaUrl) {
+
+        throw new Error(
+            "Meta no devolvió URL multimedia."
+        );
+    }
+
+    const mediaResponse =
+        await fetch(
+            mediaUrl,
+            {
+                method: "GET",
+
+                headers: {
+                    "Authorization":
+                        `Bearer ${ACCESS_TOKEN}`
+                }
+            }
+        );
+
+    if (!mediaResponse.ok) {
+
+        const errorText =
+            await mediaResponse.text();
+
+        throw new Error(
+            `No se pudo descargar multimedia: ${errorText}`
+        );
+    }
+
+    const arrayBuffer =
+        await mediaResponse.arrayBuffer();
+
+    return {
+
+        buffer:
+            Buffer.from(
+                arrayBuffer
+            ),
+
+        mimeType:
+            mimeType,
+
+        mediaId:
+            mediaId,
+
+        originalUrl:
+            mediaUrl
+    };
+}
+
+// =====================================================
+// EXTENSIÓN SEGÚN MIME
+// =====================================================
+
+function obtenerExtension(
+    mimeType
+) {
+
+    const mapa = {
+
+        "image/jpeg":
+            ".jpg",
+
+        "image/png":
+            ".png",
+
+        "image/webp":
+            ".webp",
+
+        "image/gif":
+            ".gif",
+
+        "video/mp4":
+            ".mp4",
+
+        "video/3gpp":
+            ".3gp",
+
+        "audio/ogg":
+            ".ogg",
+
+        "audio/mpeg":
+            ".mp3",
+
+        "audio/mp4":
+            ".m4a",
+
+        "application/pdf":
+            ".pdf",
+
+        "application/msword":
+            ".doc",
+
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            ".docx",
+
+        "application/vnd.ms-excel":
+            ".xls",
+
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            ".xlsx",
+
+        "application/vnd.ms-powerpoint":
+            ".ppt",
+
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+            ".pptx",
+
+        "text/plain":
+            ".txt"
+    };
+
+    return (
+        mapa[mimeType] ||
+        ""
+    );
+}
+
+// =====================================================
+// GUARDAR MEDIA EN SUPABASE STORAGE
+// =====================================================
+
+async function guardarMediaStorage(
+    media,
+    telefono,
+    messageId
+) {
+
+    const extension =
+        obtenerExtension(
+            media.mimeType
+        );
+
+    const nombreArchivo =
+        `${Date.now()}_${messageId}${extension}`;
+
+    const path =
+        `${telefono}/${nombreArchivo}`;
+
+    const {
+        error
+    } =
+        await supabase
+            .storage
+            .from(
+                WHATSAPP_MEDIA_BUCKET
+            )
+            .upload(
+                path,
+                media.buffer,
+                {
+                    contentType:
+                        media.mimeType,
+
+                    upsert:
+                        false
+                }
+            );
+
+    if (error) {
+
+        throw error;
+    }
+
+    /*
+     * Bucket privado:
+     * generamos URL firmada.
+     */
+
+    let mediaUrl =
+        null;
+
+    const {
+        data: signedData,
+        error: signedError
+    } =
+        await supabase
+            .storage
+            .from(
+                WHATSAPP_MEDIA_BUCKET
+            )
+            .createSignedUrl(
+                path,
+                60 * 60 * 24 * 30
+            );
+
     if (
-        Number.isFinite(
-            numero
-        )
+        !signedError &&
+        signedData
     ) {
 
+        mediaUrl =
+            signedData.signedUrl;
+    }
+
+    return {
+
+        bucket:
+            WHATSAPP_MEDIA_BUCKET,
+
+        path:
+            path,
+
+        url:
+            mediaUrl,
+
+        mime_type:
+            media.mimeType,
+
+        media_id:
+            media.mediaId,
+
+        nombre_archivo:
+            nombreArchivo,
+
+        tamano:
+            media.buffer.length
+    };
+}
+
+// =====================================================
+// OBTENER DATOS MULTIMEDIA DEL MENSAJE
+// =====================================================
+
+function obtenerDatosMedia(
+    message
+) {
+
+    const tipo =
+        message.type;
+
+    if (
+        tipo === "image" &&
+        message.image
+    ) {
+
+        return {
+
+            mediaId:
+                message.image.id,
+
+            mimeType:
+                message.image.mime_type ||
+                "image/jpeg",
+
+            caption:
+                message.image.caption ||
+                null
+        };
+    }
+
+    if (
+        tipo === "video" &&
+        message.video
+    ) {
+
+        return {
+
+            mediaId:
+                message.video.id,
+
+            mimeType:
+                message.video.mime_type ||
+                "video/mp4",
+
+            caption:
+                message.video.caption ||
+                null
+        };
+    }
+
+    if (
+        tipo === "audio" &&
+        message.audio
+    ) {
+
+        return {
+
+            mediaId:
+                message.audio.id,
+
+            mimeType:
+                message.audio.mime_type ||
+                "audio/ogg",
+
+            caption:
+                null
+        };
+    }
+
+    if (
+        tipo === "document" &&
+        message.document
+    ) {
+
+        return {
+
+            mediaId:
+                message.document.id,
+
+            mimeType:
+                message.document.mime_type ||
+                "application/octet-stream",
+
+            caption:
+                message.document.caption ||
+                null,
+
+            filename:
+                message.document.filename ||
+                null
+        };
+    }
+
+    if (
+        tipo === "sticker" &&
+        message.sticker
+    ) {
+
+        return {
+
+            mediaId:
+                message.sticker.id,
+
+            mimeType:
+                message.sticker.mime_type ||
+                "image/webp",
+
+            caption:
+                null
+        };
+    }
+
+    return null;
+}
+
+// =====================================================
+// PROCESAR MULTIMEDIA
+// =====================================================
+
+async function procesarMultimedia(
+    message,
+    telefono
+) {
+
+    const datos =
+        obtenerDatosMedia(
+            message
+        );
+
+    if (!datos) {
+
+        return null;
+    }
+
+    console.log(
+        "Procesando multimedia:",
+        message.type
+    );
+
+    const media =
+        await descargarMediaWhatsApp(
+            datos.mediaId
+        );
+
+    const archivo =
+        await guardarMediaStorage(
+            media,
+            telefono,
+            message.id
+        );
+
+    return {
+
+        tipo:
+            message.type,
+
+        media_id:
+            datos.mediaId,
+
+        mime_type:
+            media.mimeType,
+
+        media_url:
+            archivo.url,
+
+        media_path:
+            archivo.path,
+
+        bucket:
+            archivo.bucket,
+
+        nombre_archivo:
+            datos.filename ||
+            archivo.nombre_archivo,
+
+        tamano:
+            archivo.tamano,
+
+        caption:
+            datos.caption ||
+            null
+    };
+}
+
+// =====================================================
+// OBTENER CONTENIDO DEL MENSAJE
+// =====================================================
+
+function obtenerContenidoMensaje(
+    message,
+    multimedia
+) {
+
+    if (
+        message.type === "text" &&
+        message.text
+    ) {
+
+        return message.text.body;
+    }
+
+    if (multimedia) {
+
+        return JSON.stringify(
+            multimedia
+        );
+    }
+
+    return (
+        `[Mensaje de tipo ${message.type}]`
+    );
+}
+
+// =====================================================
+// BUSCAR / CREAR CLIENTE
+// =====================================================
+
+async function obtenerCliente(
+    telefono,
+    nombre
+) {
+
+    const {
+        data: existente,
+        error: errorBusqueda
+    } =
+        await supabase
+            .from("clientes")
+            .select("*")
+            .eq(
+                "telefono",
+                telefono
+            )
+            .maybeSingle();
+
+    if (errorBusqueda) {
+
+        throw errorBusqueda;
+    }
+
+    if (existente) {
+
+        /*
+         * Si WhatsApp ahora devuelve nombre,
+         * actualizamos el nombre si estaba vacío.
+         */
+
+        if (
+            nombre &&
+            !existente.nombre
+        ) {
+
+            await supabase
+                .from("clientes")
+                .update({
+                    nombre:
+                        nombre
+                })
+                .eq(
+                    "id",
+                    existente.id
+                );
+
+            existente.nombre =
+                nombre;
+        }
+
+        return existente;
+    }
+
+    const {
+        data: nuevo,
+        error
+    } =
+        await supabase
+            .from("clientes")
+            .insert({
+
+                telefono:
+                    telefono,
+
+                nombre:
+                    nombre ||
+                    telefono,
+
+                activo:
+                    true,
+
+                baja_comunicaciones:
+                    false
+            })
+            .select()
+            .single();
+
+    if (error) {
+
+        throw error;
+    }
+
+    return nuevo;
+}
+
+// =====================================================
+// BUSCAR CONVERSACIÓN ABIERTA
+// =====================================================
+
+async function obtenerConversacionAbierta(
+    clienteId
+) {
+
+    const {
+        data,
+        error
+    } =
+        await supabase
+            .from("conversaciones")
+            .select("*")
+            .eq(
+                "cliente_id",
+                clienteId
+            )
+            .eq(
+                "estado",
+                "abierta"
+            )
+            .order(
+                "ultima_interaccion",
+                {
+                    ascending:
+                        false
+                }
+            )
+            .limit(1)
+            .maybeSingle();
+
+    if (error) {
+
+        throw error;
+    }
+
+    return data;
+}
+
+// =====================================================
+// CREAR CONVERSACIÓN / TICKET
+// =====================================================
+
+async function crearConversacion(
+    clienteId
+) {
+
+    const {
+        data,
+        error
+    } =
+        await supabase
+            .from("conversaciones")
+            .insert({
+
+                cliente_id:
+                    clienteId,
+
+                estado:
+                    "abierta",
+
+                prioridad:
+                    "normal",
+
+                ultima_interaccion:
+                    new Date()
+                        .toISOString()
+            })
+            .select()
+            .single();
+
+    if (error) {
+
+        throw error;
+    }
+
+    return data;
+}
+
+// =====================================================
+// CONTAR MENSAJES ENTRANTES
+// =====================================================
+
+async function contarMensajesEntrantes(
+    conversacionId
+) {
+
+    const {
+        count,
+        error
+    } =
+        await supabase
+            .from("mensajes")
+            .select(
+                "id",
+                {
+                    count:
+                        "exact",
+
+                    head:
+                        true
+                }
+            )
+            .eq(
+                "conversacion_id",
+                conversacionId
+            )
+            .eq(
+                "direccion",
+                "entrante"
+            );
+
+    if (error) {
+
+        throw error;
+    }
+
+    return count || 0;
+}
+
+// =====================================================
+// PROCESAR MENSAJE ENTRANTE
+// =====================================================
+
+async function procesarMensajeEntrante(
+    message,
+    value
+) {
+
+    const telefono =
+        message.from;
+
+    if (!telefono) {
+
+        console.log(
+            "Mensaje ignorado: sin teléfono."
+        );
+
+        return;
+    }
+
+    const nombre =
+        value
+            ?.contacts?.[0]
+            ?.profile?.name ||
+        telefono;
+
+    const whatsappMessageId =
+        message.id ||
+        null;
+
+    const tipo =
+        message.type ||
+        "unknown";
+
+    console.log(
+        "Cliente:",
+        nombre
+    );
+
+    console.log(
+        "Teléfono:",
+        telefono
+    );
+
+    console.log(
+        "Tipo de mensaje:",
+        tipo
+    );
+
+    // =================================================
+    // EVITAR DUPLICADOS
+    // =================================================
+
+    if (whatsappMessageId) {
+
         const {
-            data,
+            data: existente,
+            error
+        } =
+            await supabase
+                .from("mensajes")
+                .select("id")
+                .eq(
+                    "whatsapp_message_id",
+                    whatsappMessageId
+                )
+                .maybeSingle();
+
+        if (error) {
+
+            throw error;
+        }
+
+        if (existente) {
+
+            console.log(
+                "Mensaje duplicado ignorado:",
+                whatsappMessageId
+            );
+
+            return;
+        }
+    }
+
+    // =================================================
+    // CLIENTE
+    // =================================================
+
+    const cliente =
+        await obtenerCliente(
+            telefono,
+            nombre
+        );
+
+    // =================================================
+    // CALIFICACIÓN
+    // =================================================
+
+    const contenidoTexto =
+        message.type === "text" &&
+        message.text
+            ? String(
+                message.text.body
+            ).trim()
+            : "";
+
+    const esCalificacion =
+        message.type === "text" &&
+        /^[1-5]$/.test(
+            contenidoTexto
+        );
+
+    if (esCalificacion) {
+
+        const {
+            data: ultimaConversacion,
             error
         } =
             await supabase
                 .from("conversaciones")
-                .select(`
-                    *,
-                    cliente:clientes(
-                        id,
-                        nombre,
-                        telefono,
-                        empresa
-                    ),
-                    agente:agentes(
-                        id,
-                        nombre,
-                        rol,
-                        area,
-                        activo
-                    )
-                `)
+                .select("*")
                 .eq(
-                    "numero_ticket",
-                    numero
+                    "cliente_id",
+                    cliente.id
                 )
                 .order(
                     "creado_en",
@@ -2548,63 +1301,520 @@ async function buscarTickets(
                         ascending:
                             false
                     }
-                );
+                )
+                .limit(1)
+                .maybeSingle();
 
         if (error) {
 
-            throw new Error(
-                "Error buscando tickets: " +
-                error.message
-            );
+            throw error;
         }
 
-        return data || [];
-    }
+        if (
+            ultimaConversacion &&
+            ultimaConversacion.estado ===
+                "cerrada"
+        ) {
 
-    // -------------------------------------------------
-    // Si no es número, buscamos por cliente
-    // -------------------------------------------------
+            await supabase
+                .from("mensajes")
+                .insert({
 
-    const {
-        data: clientes,
-        error: errorClientes
-    } =
-        await supabase
-            .from("clientes")
-            .select(
-                "id"
-            )
-            .or(
-                `nombre.ilike.%${textoBusqueda}%,telefono.ilike.%${textoBusqueda}%`
+                    cliente_id:
+                        cliente.id,
+
+                    conversacion_id:
+                        ultimaConversacion.id,
+
+                    whatsapp_message_id:
+                        whatsappMessageId,
+
+                    direccion:
+                        "entrante",
+
+                    tipo:
+                        "text",
+
+                    contenido:
+                        contenidoTexto,
+
+                    estado:
+                        "recibido"
+                });
+
+            const {
+                error:
+                    errorCalificacion
+            } =
+                await supabase
+                    .from("conversaciones")
+                    .update({
+
+                        calificacion:
+                            Number(
+                                contenidoTexto
+                            ),
+
+                        calificado_en:
+                            new Date()
+                                .toISOString()
+                    })
+                    .eq(
+                        "id",
+                        ultimaConversacion.id
+                    );
+
+            if (errorCalificacion) {
+
+                throw errorCalificacion;
+            }
+
+            await registrarHistorial(
+                ultimaConversacion.id,
+                ultimaConversacion.agente_id,
+                "ticket_calificado",
+                `El cliente calificó la atención con ${contenidoTexto}/5.`
             );
 
-    if (errorClientes) {
+            const gracias =
+                `⭐ Gracias por calificar la atención del ticket #${ultimaConversacion.numero_ticket}.\n\nTu valoración fue registrada correctamente.\n\n¡Gracias por confiar en TR Soporte!`;
 
-        throw new Error(
-            "Error buscando clientes: " +
-            errorClientes.message
+            const resultado =
+                await enviarWhatsApp(
+                    telefono,
+                    gracias
+                );
+
+            await guardarMensajeSaliente(
+                ultimaConversacion,
+                gracias,
+                ultimaConversacion.agente_id,
+                resultado
+                    ?.messages?.[0]?.id ||
+                null
+            );
+
+            console.log(
+                `Calificación ${contenidoTexto}/5 registrada.`
+            );
+
+            return;
+        }
+    }
+
+    // =================================================
+    // CONVERSACIÓN ABIERTA
+    // =================================================
+
+    let conversacion =
+        await obtenerConversacionAbierta(
+            cliente.id
+        );
+
+    let ticketCreado =
+        false;
+
+    if (!conversacion) {
+
+        conversacion =
+            await crearConversacion(
+                cliente.id
+            );
+
+        ticketCreado =
+            true;
+
+        console.log(
+            "Nueva conversación creada:",
+            conversacion.id
+        );
+
+        console.log(
+            "Número de ticket:",
+            conversacion.numero_ticket
         );
     }
 
-    const clienteIds =
-        (
-            clientes || []
-        )
-        .map(
-            cliente =>
-                cliente.id
-        );
+    // =================================================
+    // MULTIMEDIA
+    // =================================================
+
+    let multimedia =
+        null;
 
     if (
-        clienteIds.length ===
-        0
+        [
+            "image",
+            "video",
+            "audio",
+            "document",
+            "sticker"
+        ].includes(
+            tipo
+        )
     ) {
 
-        return [];
+        try {
+
+            multimedia =
+                await procesarMultimedia(
+                    message,
+                    telefono
+                );
+
+            console.log(
+                "Multimedia guardada:",
+                multimedia
+            );
+
+        } catch (error) {
+
+            console.error(
+                "ERROR PROCESANDO MULTIMEDIA:",
+                error
+            );
+
+            /*
+             * No perdemos el mensaje.
+             * Guardamos una referencia textual
+             * aunque falle Storage.
+             */
+
+            multimedia = {
+
+                tipo:
+                    tipo,
+
+                error:
+                    error.message
+            };
+        }
+    }
+
+    // =================================================
+    // CONTENIDO
+    // =================================================
+
+    const contenido =
+        obtenerContenidoMensaje(
+            message,
+            multimedia
+        );
+
+    // =================================================
+    // NÚMERO DE MENSAJE ENTRANTE
+    // =================================================
+
+    const mensajesEntrantesAntes =
+        await contarMensajesEntrantes(
+            conversacion.id
+        );
+
+    const numeroMensaje =
+        mensajesEntrantesAntes + 1;
+
+    console.log(
+        "Mensaje entrante número:",
+        numeroMensaje
+    );
+
+    // =================================================
+    // GUARDAR MENSAJE
+    // =================================================
+
+    const {
+        error: errorMensaje
+    } =
+        await supabase
+            .from("mensajes")
+            .insert({
+
+                cliente_id:
+                    cliente.id,
+
+                conversacion_id:
+                    conversacion.id,
+
+                whatsapp_message_id:
+                    whatsappMessageId,
+
+                direccion:
+                    "entrante",
+
+                tipo:
+                    tipo,
+
+                contenido:
+                    contenido,
+
+                estado:
+                    "recibido"
+            });
+
+    if (errorMensaje) {
+
+        throw errorMensaje;
+    }
+
+    console.log(
+        "Mensaje guardado correctamente."
+    );
+
+    // =================================================
+    // ACTUALIZAR CLIENTE
+    // =================================================
+
+    await supabase
+        .from("clientes")
+        .update({
+
+            ultima_interaccion:
+                new Date()
+                    .toISOString()
+        })
+        .eq(
+            "id",
+            cliente.id
+        );
+
+    // =================================================
+    // ACTUALIZAR CONVERSACIÓN
+    // =================================================
+
+    await supabase
+        .from("conversaciones")
+        .update({
+
+            ultima_interaccion:
+                new Date()
+                    .toISOString()
+        })
+        .eq(
+            "id",
+            conversacion.id
+        );
+
+    // =================================================
+    // HISTORIAL
+    // =================================================
+
+    if (ticketCreado) {
+
+        await registrarHistorial(
+            conversacion.id,
+            null,
+            "ticket_creado",
+            "Ticket creado automáticamente desde WhatsApp."
+        );
+
+    } else {
+
+        await registrarHistorial(
+            conversacion.id,
+            conversacion.agente_id,
+            "mensaje_recibido",
+            multimedia
+                ? `El cliente envió un mensaje multimedia (${tipo}).`
+                : "El cliente envió un nuevo mensaje por WhatsApp."
+        );
+    }
+
+    // =================================================
+    // RESPUESTAS AUTOMÁTICAS
+    // =================================================
+
+    let respuestaAutomatica =
+        null;
+
+    // -----------------------------------------------
+    // PRIMER MENSAJE
+    // -----------------------------------------------
+
+    if (
+        numeroMensaje === 1
+    ) {
+
+        respuestaAutomatica =
+            "Hola 👋 Gracias por comunicarte con TR Soporte. Recibimos tu mensaje correctamente.\n\nMientras tanto, contanos brevemente cuál es el problema que estás teniendo para que podamos ayudarte mejor. 🛠️";
+    }
+
+    // -----------------------------------------------
+    // SEGUNDO MENSAJE
+    // -----------------------------------------------
+
+    else if (
+        numeroMensaje === 2
+    ) {
+
+        respuestaAutomatica =
+            `📋 Tu número de caso es #${conversacion.numero_ticket}.\n\nGracias por la información. Un agente de soporte revisará tu solicitud y se comunicará con vos.\n\nPor favor, aguardá el contacto del agente.`;
+    }
+
+    // -----------------------------------------------
+    // TERCERO EN ADELANTE
+    // -----------------------------------------------
+
+    else {
+
+        console.log(
+            "No se envía respuesta automática."
+        );
+    }
+
+    // =================================================
+    // ENVIAR RESPUESTA AUTOMÁTICA
+    // =================================================
+
+    if (
+        respuestaAutomatica
+    ) {
+
+        console.log(
+            "Enviando respuesta automática..."
+        );
+
+        const resultado =
+            await enviarWhatsApp(
+                telefono,
+                respuestaAutomatica
+            );
+
+        const whatsappRespuestaId =
+            resultado
+                ?.messages?.[0]?.id ||
+            null;
+
+        await guardarMensajeSaliente(
+            conversacion,
+            respuestaAutomatica,
+            null,
+            whatsappRespuestaId
+        );
+
+        console.log(
+            "Respuesta automática enviada correctamente."
+        );
+    }
+}
+
+// =====================================================
+// OBTENER TICKET COMPLETO
+// =====================================================
+
+async function obtenerTicketCompleto(
+    id
+) {
+
+    const {
+        data: ticket,
+        error: errorTicket
+    } =
+        await supabase
+            .from("conversaciones")
+            .select(`
+                *,
+                cliente:clientes(
+                    id,
+                    nombre,
+                    telefono,
+                    empresa
+                ),
+                agente:agentes(
+                    id,
+                    nombre,
+                    rol,
+                    area,
+                    activo
+                )
+            `)
+            .eq(
+                "id",
+                id
+            )
+            .maybeSingle();
+
+    if (errorTicket) {
+
+        throw errorTicket;
+    }
+
+    if (!ticket) {
+
+        throw new Error(
+            "Ticket no encontrado."
+        );
     }
 
     const {
-        data,
+        data: mensajes,
+        error: errorMensajes
+    } =
+        await supabase
+            .from("mensajes")
+            .select("*")
+            .eq(
+                "conversacion_id",
+                id
+            )
+            .order(
+                "id",
+                {
+                    ascending:
+                        true
+                }
+            );
+
+    if (errorMensajes) {
+
+        throw errorMensajes;
+    }
+
+    const {
+        data: historial,
+        error: errorHistorial
+    } =
+        await supabase
+            .from("ticket_historial")
+            .select("*")
+            .eq(
+                "conversacion_id",
+                id
+            )
+            .order(
+                "id",
+                {
+                    ascending:
+                        true
+                }
+            );
+
+    if (errorHistorial) {
+
+        throw errorHistorial;
+    }
+
+    return {
+
+        ...ticket,
+
+        mensajes:
+            mensajes || [],
+
+        historial:
+            historial || []
+    };
+}
+
+// =====================================================
+// LISTAR TICKETS
+// =====================================================
+
+async function obtenerTickets(
+    buscar = ""
+) {
+
+    const {
+        data: conversaciones,
         error
     } =
         await supabase
@@ -2625,12 +1835,8 @@ async function buscarTickets(
                     activo
                 )
             `)
-            .in(
-                "cliente_id",
-                clienteIds
-            )
             .order(
-                "creado_en",
+                "ultima_interaccion",
                 {
                     ascending:
                         false
@@ -2639,197 +1845,463 @@ async function buscarTickets(
 
     if (error) {
 
-        throw new Error(
-            "Error buscando tickets: " +
-            error.message
-        );
+        throw error;
     }
 
-    return data || [];
+    let tickets =
+        conversaciones || [];
+
+    const texto =
+        String(
+            buscar || ""
+        )
+            .trim()
+            .toLowerCase();
+
+    if (texto) {
+
+        tickets =
+            tickets.filter(
+                ticket => {
+
+                    const numero =
+                        String(
+                            ticket.numero_ticket ||
+                            ""
+                        ).toLowerCase();
+
+                    const nombre =
+                        String(
+                            ticket.cliente?.nombre ||
+                            ""
+                        ).toLowerCase();
+
+                    const telefono =
+                        String(
+                            ticket.cliente?.telefono ||
+                            ""
+                        ).toLowerCase();
+
+                    const empresa =
+                        String(
+                            ticket.cliente?.empresa ||
+                            ""
+                        ).toLowerCase();
+
+                    const estado =
+                        String(
+                            ticket.estado ||
+                            ""
+                        ).toLowerCase();
+
+                    const prioridad =
+                        String(
+                            ticket.prioridad ||
+                            ""
+                        ).toLowerCase();
+
+                    const categoria =
+                        String(
+                            ticket.categoria ||
+                            ""
+                        ).toLowerCase();
+
+                    const agente =
+                        String(
+                            ticket.agente?.nombre ||
+                            ""
+                        ).toLowerCase();
+
+                    return (
+                        numero.includes(texto) ||
+                        nombre.includes(texto) ||
+                        telefono.includes(texto) ||
+                        empresa.includes(texto) ||
+                        estado.includes(texto) ||
+                        prioridad.includes(texto) ||
+                        categoria.includes(texto) ||
+                        agente.includes(texto)
+                    );
+                }
+            );
+    }
+
+    return tickets;
 }
 
 // =====================================================
-// CONSTRUIR RESPUESTA DE TICKET
+// ASIGNAR AGENTE
 // =====================================================
 
-async function construirRespuestaTicket(
-    ticket
+async function asignarAgente(
+    id,
+    agenteId
 ) {
 
-    if (!ticket) {
+    if (
+        agenteId !== null &&
+        agenteId !== undefined
+    ) {
 
-        return {
+        const agente =
+            await obtenerAgente(
+                agenteId
+            );
 
-            success:
-                false,
+        if (!agente) {
 
-            error:
-                "Ticket no encontrado."
-        };
+            throw new Error(
+                "El agente no existe."
+            );
+        }
     }
 
-    const mensajes =
-        await obtenerMensajesTicket(
-            ticket
+    const {
+        data,
+        error
+    } =
+        await supabase
+            .from("conversaciones")
+            .update({
+
+                agente_id:
+                    agenteId
+            })
+            .eq(
+                "id",
+                id
+            )
+            .select()
+            .single();
+
+    if (error) {
+
+        throw error;
+    }
+
+    await registrarHistorial(
+        id,
+        agenteId,
+        agenteId === null
+            ? "ticket_desasignado"
+            : "ticket_asignado",
+        agenteId === null
+            ? "Ticket desasignado."
+            : `Ticket asignado a agente ID ${agenteId}.`
+    );
+
+    return data;
+}
+
+// =====================================================
+// ACTUALIZAR ESTADO
+// =====================================================
+
+async function actualizarEstado(
+    id,
+    estado,
+    agenteId
+) {
+
+    const estadosPermitidos = [
+        "abierta",
+        "en_proceso",
+        "cerrada"
+    ];
+
+    if (
+        !estadosPermitidos.includes(
+            estado
+        )
+    ) {
+
+        throw new Error(
+            "Estado no válido."
+        );
+    }
+
+    const campos = {
+
+        estado:
+            estado,
+
+        ultima_interaccion:
+            new Date()
+                .toISOString()
+    };
+
+    if (
+        estado === "cerrada"
+    ) {
+
+        campos.cerrado_en =
+            new Date()
+                .toISOString();
+
+    } else {
+
+        campos.cerrado_en =
+            null;
+    }
+
+    const {
+        data,
+        error
+    } =
+        await supabase
+            .from("conversaciones")
+            .update(
+                campos
+            )
+            .eq(
+                "id",
+                id
+            )
+            .select()
+            .single();
+
+    if (error) {
+
+        throw error;
+    }
+
+    await registrarHistorial(
+        id,
+        agenteId,
+        "estado_cambiado",
+        `Estado del ticket cambiado a "${estado}".`
+    );
+
+    return data;
+}
+
+// =====================================================
+// ACTUALIZAR PRIORIDAD
+// =====================================================
+
+async function actualizarPrioridad(
+    id,
+    prioridad,
+    agenteId
+) {
+
+    const permitidas = [
+        "baja",
+        "normal",
+        "alta",
+        "urgente"
+    ];
+
+    if (
+        !permitidas.includes(
+            prioridad
+        )
+    ) {
+
+        throw new Error(
+            "Prioridad no válida."
+        );
+    }
+
+    const {
+        data,
+        error
+    } =
+        await supabase
+            .from("conversaciones")
+            .update({
+
+                prioridad:
+                    prioridad,
+
+                ultima_interaccion:
+                    new Date()
+                        .toISOString()
+            })
+            .eq(
+                "id",
+                id
+            )
+            .select()
+            .single();
+
+    if (error) {
+
+        throw error;
+    }
+
+    await registrarHistorial(
+        id,
+        agenteId,
+        "prioridad_cambiada",
+        `Prioridad cambiada a "${prioridad}".`
+    );
+
+    return data;
+}
+
+// =====================================================
+// ACTUALIZAR CATEGORÍA
+// =====================================================
+
+async function actualizarCategoria(
+    id,
+    categoria,
+    agenteId
+) {
+
+    const {
+        data,
+        error
+    } =
+        await supabase
+            .from("conversaciones")
+            .update({
+
+                categoria:
+                    categoria ||
+                    null,
+
+                ultima_interaccion:
+                    new Date()
+                        .toISOString()
+            })
+            .eq(
+                "id",
+                id
+            )
+            .select()
+            .single();
+
+    if (error) {
+
+        throw error;
+    }
+
+    await registrarHistorial(
+        id,
+        agenteId,
+        "categoria_cambiada",
+        categoria
+            ? `Categoría cambiada a "${categoria}".`
+            : "Categoría eliminada."
+    );
+
+    return data;
+}
+
+// =====================================================
+// CERRAR TICKET
+// =====================================================
+
+async function cerrarTicket(
+    id,
+    agenteId
+) {
+
+    const ahora =
+        new Date()
+            .toISOString();
+
+    const {
+        data: ticket,
+        error
+    } =
+        await supabase
+            .from("conversaciones")
+            .update({
+
+                estado:
+                    "cerrada",
+
+                cerrado_en:
+                    ahora,
+
+                ultima_interaccion:
+                    ahora,
+
+                agente_id:
+                    agenteId || null
+            })
+            .eq(
+                "id",
+                id
+            )
+            .select()
+            .single();
+
+    if (error) {
+
+        throw error;
+    }
+
+    await registrarHistorial(
+        id,
+        agenteId,
+        "ticket_cerrado",
+        "Ticket cerrado por el agente."
+    );
+
+    const {
+        data: cliente,
+        error: errorCliente
+    } =
+        await supabase
+            .from("clientes")
+            .select("*")
+            .eq(
+                "id",
+                ticket.cliente_id
+            )
+            .single();
+
+    if (errorCliente) {
+
+        throw errorCliente;
+    }
+
+    let mensajeEnviado =
+        false;
+
+    if (
+        cliente &&
+        cliente.telefono
+    ) {
+
+        const mensajeCierre =
+            `📋 Tu ticket #${ticket.numero_ticket} fue cerrado correctamente.\n\nEsperamos haber podido ayudarte.\n\n⭐ ¿Cómo calificarías la atención recibida?\n\nRespondé con un número del 1 al 5:\n\n1️⃣ Muy mala\n2️⃣ Mala\n3️⃣ Regular\n4️⃣ Buena\n5️⃣ Excelente`;
+
+        const resultado =
+            await enviarWhatsApp(
+                cliente.telefono,
+                mensajeCierre
+            );
+
+        await guardarMensajeSaliente(
+            ticket,
+            mensajeCierre,
+            agenteId,
+            resultado
+                ?.messages?.[0]?.id ||
+            null
         );
 
-    return {
+        mensajeEnviado =
+            true;
+    }
 
-        success:
-            true,
+    return {
 
         ticket:
             ticket,
 
-        mensajes:
-            mensajes.map(
-                normalizarMensajeParaCliente
-            )
+        mensajeEnviado:
+            mensajeEnviado
     };
 }
 
 // =====================================================
-// HEALTH CHECK
-// =====================================================
-
-async function comprobarSupabase() {
-
-    try {
-
-        const {
-            error
-        } =
-            await supabase
-                .from("agentes")
-                .select("id")
-                .limit(1);
-
-        if (error) {
-
-            return false;
-        }
-
-        return true;
-
-    } catch {
-
-        return false;
-    }
-}
-
-// =====================================================
-// RUTA HEALTH
-// =====================================================
-
-async function manejarHealth(
-    res
-) {
-
-    const supabaseOK =
-        await comprobarSupabase();
-
-    responderJSON(
-        res,
-        200,
-        {
-            servidor:
-                "OK",
-
-            supabase:
-                supabaseOK
-                    ? "OK"
-                    : "ERROR",
-
-            estado:
-                supabaseOK
-                    ? "ONLINE"
-                    : "DEGRADED"
-        }
-    );
-}
-
-// =====================================================
-// RUTA PRINCIPAL
-// =====================================================
-
-async function manejarInicio(
-    res
-) {
-
-    responderJSON(
-        res,
-        200,
-        {
-            servidor:
-                "TR Soporte WhatsApp Webhook",
-
-            estado:
-                "ONLINE"
-        }
-    );
-}
-
-// =====================================================
-// WEBHOOK - VERIFICACIÓN DE META
-// =====================================================
-
-function verificarWebhookMeta(
-    req,
-    res,
-    query
-) {
-
-    const mode =
-        query["hub.mode"];
-
-    const token =
-        query["hub.verify_token"];
-
-    const challenge =
-        query["hub.challenge"];
-
-    if (
-        mode === "subscribe" &&
-        token === VERIFY_TOKEN
-    ) {
-
-        console.log(
-            "Webhook de WhatsApp verificado correctamente."
-        );
-
-        res.writeHead(
-            200,
-            {
-                "Content-Type":
-                    "text/plain"
-            }
-        );
-
-        res.end(
-            challenge
-        );
-
-        return true;
-    }
-
-    console.log(
-        "Falló la verificación del webhook."
-    );
-
-    responderJSON(
-        res,
-        403,
-        {
-            error:
-                "Token de verificación inválido."
-        }
-    );
-
-    return false;
-}
-
-// =====================================================
-// WEBHOOK - RECIBIR MENSAJES
+// PROCESAR WEBHOOK
 // =====================================================
 
 async function manejarWebhook(
@@ -2839,32 +2311,99 @@ async function manejarWebhook(
 
     try {
 
-        const body =
-            await leerBody(req);
+        const data =
+            await leerBody(
+                req
+            );
 
+        console.log("");
         console.log(
-            "========================================"
+            "========================================="
         );
-
         console.log(
             "WEBHOOK DE WHATSAPP RECIBIDO"
+        );
+        console.log(
+            "========================================="
         );
 
         console.log(
             JSON.stringify(
-                body,
+                data,
                 null,
                 2
             )
         );
 
-        console.log(
-            "========================================"
-        );
+        const entries =
+            data.entry || [];
 
-        await procesarEventoWhatsApp(
-            body
-        );
+        for (
+            const entry
+            of entries
+        ) {
+
+            const changes =
+                entry.changes || [];
+
+            for (
+                const change
+                of changes
+            ) {
+
+                const value =
+                    change.value;
+
+                if (!value) {
+                    continue;
+                }
+
+                const messages =
+                    value.messages || [];
+
+                /*
+                 * IMPORTANTE:
+                 *
+                 * Los eventos de status (delivered,
+                 * read, sent) NO contienen messages.
+                 *
+                 * Simplemente los ignoramos.
+                 */
+
+                if (
+                    messages.length === 0
+                ) {
+
+                    continue;
+                }
+
+                for (
+                    const message
+                    of messages
+                ) {
+
+                    try {
+
+                        await procesarMensajeEntrante(
+                            message,
+                            value
+                        );
+
+                        console.log(
+                            "Mensaje procesado correctamente:",
+                            message.id
+                        );
+
+                    } catch (errorMensaje) {
+
+                        console.error(
+                            "ERROR PROCESANDO MENSAJE:",
+                            errorMensaje
+                        );
+                    }
+                }
+            }
+        }
 
         responderJSON(
             res,
@@ -2878,9 +2417,14 @@ async function manejarWebhook(
     } catch (error) {
 
         console.error(
-            "Error procesando webhook:",
+            "ERROR PROCESANDO WEBHOOK:",
             error
         );
+
+        /*
+         * Respondemos 200 para evitar que Meta
+         * reintente indefinidamente el webhook.
+         */
 
         responderJSON(
             res,
@@ -2897,188 +2441,75 @@ async function manejarWebhook(
 }
 
 // =====================================================
-// LEER JSON PARA POST
+// HEALTH
 // =====================================================
 
-async function leerJSON(
-    req
-) {
-
-    try {
-
-        return await leerBody(
-            req
-        );
-
-    } catch (error) {
-
-        throw new Error(
-            "El cuerpo de la solicitud no contiene JSON válido."
-        );
-    }
-}
-
-// =====================================================
-// RUTA /TICKETS
-// =====================================================
-
-async function manejarTickets(
-    req,
+async function manejarHealth(
     res
 ) {
 
     try {
 
-        const tickets =
-            await obtenerTickets();
-
-        responderJSON(
-            res,
-            200,
-            {
-                success:
-                    true,
-
-                tickets:
-                    tickets
-            }
-        );
-
-    } catch (error) {
-
-        console.error(
-            "Error en /tickets:",
+        const {
             error
-        );
+        } =
+            await supabase
+                .from("agentes")
+                .select("id")
+                .limit(1);
 
-        responderJSON(
-            res,
-            500,
-            {
-                success:
-                    false,
-
-                error:
-                    error.message
-            }
-        );
-    }
-}
-
-// =====================================================
-// RUTA /TICKETS/BUSCAR
-// =====================================================
-
-async function manejarBuscarTickets(
-    req,
-    res,
-    query
-) {
-
-    try {
-
-        const texto =
-            query.q ||
-            query.numero ||
-            query.busqueda ||
-            "";
-
-        const tickets =
-            await buscarTickets(
-                texto
-            );
-
-        responderJSON(
-            res,
-            200,
-            {
-                success:
-                    true,
-
-                tickets:
-                    tickets
-            }
-        );
-
-    } catch (error) {
-
-        console.error(
-            "Error en /tickets/buscar:",
-            error
-        );
-
-        responderJSON(
-            res,
-            500,
-            {
-                success:
-                    false,
-
-                error:
-                    error.message
-            }
-        );
-    }
-}
-
-// =====================================================
-// RUTA /TICKETS/:ID
-// =====================================================
-
-async function manejarTicketIndividual(
-    req,
-    res,
-    id
-) {
-
-    try {
-
-        const ticket =
-            await obtenerTicketPorId(
-                id
-            );
-
-        if (!ticket) {
+        if (error) {
 
             responderJSON(
                 res,
-                404,
+                200,
                 {
-                    success:
-                        false,
+                    servidor:
+                        "OK",
+
+                    supabase:
+                        "ERROR",
+
+                    estado:
+                        "DEGRADED",
 
                     error:
-                        "Ticket no encontrado."
+                        error.message
                 }
             );
 
             return;
         }
 
-        const respuesta =
-            await construirRespuestaTicket(
-                ticket
-            );
-
         responderJSON(
             res,
             200,
-            respuesta
+            {
+                servidor:
+                    "OK",
+
+                supabase:
+                    "OK",
+
+                estado:
+                    "ONLINE"
+            }
         );
 
     } catch (error) {
-
-        console.error(
-            "Error obteniendo ticket:",
-            error
-        );
 
         responderJSON(
             res,
             500,
             {
-                success:
-                    false,
+                servidor:
+                    "OK",
+
+                supabase:
+                    "ERROR",
+
+                estado:
+                    "ERROR",
 
                 error:
                     error.message
@@ -3088,822 +2519,7 @@ async function manejarTicketIndividual(
 }
 
 // =====================================================
-// RUTA /AGENTES
-// =====================================================
-
-async function manejarAgentes(
-    req,
-    res
-) {
-
-    try {
-
-        const agentes =
-            await obtenerAgentes();
-
-        responderJSON(
-            res,
-            200,
-            {
-                success:
-                    true,
-
-                agentes:
-                    agentes
-            }
-        );
-
-    } catch (error) {
-
-        console.error(
-            "Error en /agentes:",
-            error
-        );
-
-        responderJSON(
-            res,
-            500,
-            {
-                success:
-                    false,
-
-                error:
-                    error.message
-            }
-        );
-    }
-}
-
-// =====================================================
-// ASIGNAR AGENTE
-// =====================================================
-
-async function manejarAsignarAgente(
-    req,
-    res,
-    ticketId
-) {
-
-    try {
-
-        const body =
-            await leerJSON(req);
-
-        const agenteId =
-            body.agente_id == null
-                ? null
-                : Number(
-                    body.agente_id
-                );
-
-        if (
-            agenteId !== null &&
-            !Number.isFinite(
-                agenteId
-            )
-        ) {
-
-            responderJSON(
-                res,
-                400,
-                {
-                    success:
-                        false,
-
-                    error:
-                        "agente_id inválido."
-                }
-            );
-
-            return;
-        }
-
-        const ticket =
-            await asignarAgente(
-                ticketId,
-                agenteId
-            );
-
-        responderJSON(
-            res,
-            200,
-            {
-                success:
-                    true,
-
-                ticket:
-                    ticket
-            }
-        );
-
-    } catch (error) {
-
-        console.error(
-            "Error asignando agente:",
-            error
-        );
-
-        responderJSON(
-            res,
-            500,
-            {
-                success:
-                    false,
-
-                error:
-                    error.message
-            }
-        );
-    }
-}
-
-// =====================================================
-// ACTUALIZAR ESTADO
-// =====================================================
-
-async function manejarActualizarEstado(
-    req,
-    res,
-    ticketId
-) {
-
-    try {
-
-        const body =
-            await leerJSON(req);
-
-        const estado =
-            String(
-                body.estado ||
-                ""
-            )
-            .trim()
-            .toLowerCase();
-
-        const ticket =
-            await actualizarEstadoTicket(
-                ticketId,
-                estado
-            );
-
-        responderJSON(
-            res,
-            200,
-            {
-                success:
-                    true,
-
-                ticket:
-                    ticket
-            }
-        );
-
-    } catch (error) {
-
-        console.error(
-            "Error actualizando estado:",
-            error
-        );
-
-        responderJSON(
-            res,
-            500,
-            {
-                success:
-                    false,
-
-                error:
-                    error.message
-            }
-        );
-    }
-}
-
-// =====================================================
-// ACTUALIZAR PRIORIDAD
-// =====================================================
-
-async function manejarActualizarPrioridad(
-    req,
-    res,
-    ticketId
-) {
-
-    try {
-
-        const body =
-            await leerJSON(req);
-
-        const prioridad =
-            String(
-                body.prioridad ||
-                ""
-            )
-            .trim()
-            .toLowerCase();
-
-        const ticket =
-            await actualizarPrioridadTicket(
-                ticketId,
-                prioridad
-            );
-
-        responderJSON(
-            res,
-            200,
-            {
-                success:
-                    true,
-
-                ticket:
-                    ticket
-            }
-        );
-
-    } catch (error) {
-
-        console.error(
-            "Error actualizando prioridad:",
-            error
-        );
-
-        responderJSON(
-            res,
-            500,
-            {
-                success:
-                    false,
-
-                error:
-                    error.message
-            }
-        );
-    }
-}
-
-// =====================================================
-// ACTUALIZAR CATEGORÍA
-// =====================================================
-
-async function manejarActualizarCategoria(
-    req,
-    res,
-    ticketId
-) {
-
-    try {
-
-        const body =
-            await leerJSON(req);
-
-        const categoria =
-            body.categoria == null
-                ? null
-                : String(
-                    body.categoria
-                ).trim();
-
-        const ticket =
-            await actualizarCategoriaTicket(
-                ticketId,
-                categoria
-            );
-
-        responderJSON(
-            res,
-            200,
-            {
-                success:
-                    true,
-
-                ticket:
-                    ticket
-            }
-        );
-
-    } catch (error) {
-
-        console.error(
-            "Error actualizando categoría:",
-            error
-        );
-
-        responderJSON(
-            res,
-            500,
-            {
-                success:
-                    false,
-
-                error:
-                    error.message
-            }
-        );
-    }
-}
-
-// =====================================================
-// CERRAR TICKET
-// =====================================================
-
-async function manejarCerrarTicket(
-    req,
-    res,
-    ticketId
-) {
-
-    try {
-
-        const body =
-            await leerJSON(req);
-
-        const agenteId =
-            body.agente_id == null
-                ? null
-                : Number(
-                    body.agente_id
-                );
-
-        const ticket =
-            await cerrarTicket(
-                ticketId,
-                agenteId
-            );
-
-        responderJSON(
-            res,
-            200,
-            {
-                success:
-                    true,
-
-                ticket:
-                    ticket
-            }
-        );
-
-    } catch (error) {
-
-        console.error(
-            "Error cerrando ticket:",
-            error
-        );
-
-        responderJSON(
-            res,
-            500,
-            {
-                success:
-                    false,
-
-                error:
-                    error.message
-            }
-        );
-    }
-}
-
-// =====================================================
-// ENVIAR MENSAJE
-// =====================================================
-
-async function manejarEnviarMensaje(
-    req,
-    res
-) {
-
-    try {
-
-        const body =
-            await leerJSON(req);
-
-        const telefono =
-            String(
-                body.to ||
-                ""
-            ).trim();
-
-        const mensaje =
-            String(
-                body.message ||
-                ""
-            ).trim();
-
-        const clienteId =
-            body.cliente_id == null
-                ? null
-                : Number(
-                    body.cliente_id
-                );
-
-        const conversacionId =
-            body.conversacion_id == null
-                ? null
-                : Number(
-                    body.conversacion_id
-                );
-
-        const agenteId =
-            body.agente_id == null
-                ? null
-                : Number(
-                    body.agente_id
-                );
-
-        if (!telefono) {
-
-            responderJSON(
-                res,
-                400,
-                {
-                    success:
-                        false,
-
-                    error:
-                        "Falta el número de teléfono."
-                }
-            );
-
-            return;
-        }
-
-        if (!mensaje) {
-
-            responderJSON(
-                res,
-                400,
-                {
-                    success:
-                        false,
-
-                    error:
-                        "Falta el mensaje."
-                }
-            );
-
-            return;
-        }
-
-        const resultado =
-            await enviarMensajeWhatsApp(
-                telefono,
-                mensaje,
-                clienteId,
-                conversacionId,
-                agenteId
-            );
-
-        responderJSON(
-            res,
-            200,
-            {
-                success:
-                    true,
-
-                respuesta:
-                    resultado
-            }
-        );
-
-    } catch (error) {
-
-        console.error(
-            "Error enviando mensaje:",
-            error
-        );
-
-        responderJSON(
-            res,
-            500,
-            {
-                success:
-                    false,
-
-                error:
-                    error.message
-            }
-        );
-    }
-}
-
-// =====================================================
-// ENRUTADOR PRINCIPAL
-// =====================================================
-
-async function manejarSolicitud(
-    req,
-    res
-) {
-
-    const parsedUrl =
-        url.parse(
-            req.url,
-            true
-        );
-
-    const pathname =
-        parsedUrl.pathname;
-
-    const method =
-        req.method;
-
-    console.log(
-        `${method} ${pathname}`
-    );
-
-    // =================================================
-    // GET /
-    // =================================================
-
-    if (
-        method === "GET" &&
-        pathname === "/"
-    ) {
-
-        await manejarInicio(
-            res
-        );
-
-        return;
-    }
-
-    // =================================================
-    // GET /health
-    // =================================================
-
-    if (
-        method === "GET" &&
-        pathname === "/health"
-    ) {
-
-        await manejarHealth(
-            res
-        );
-
-        return;
-    }
-
-    // =================================================
-    // GET /webhook
-    // =================================================
-
-    if (
-        method === "GET" &&
-        pathname === "/webhook"
-    ) {
-
-        verificarWebhookMeta(
-            req,
-            res,
-            parsedUrl.query
-        );
-
-        return;
-    }
-
-    // =================================================
-    // POST /webhook
-    // =================================================
-
-    if (
-        method === "POST" &&
-        pathname === "/webhook"
-    ) {
-
-        await manejarWebhook(
-            req,
-            res
-        );
-
-        return;
-    }
-
-    // =================================================
-    // GET /tickets
-    // =================================================
-
-    if (
-        method === "GET" &&
-        pathname === "/tickets"
-    ) {
-
-        await manejarTickets(
-            req,
-            res
-        );
-
-        return;
-    }
-
-    // =================================================
-    // GET /tickets/buscar
-    // =================================================
-
-    if (
-        method === "GET" &&
-        pathname === "/tickets/buscar"
-    ) {
-
-        await manejarBuscarTickets(
-            req,
-            res,
-            parsedUrl.query
-        );
-
-        return;
-    }
-
-    // =================================================
-    // GET /agentes
-    // =================================================
-
-    if (
-        method === "GET" &&
-        pathname === "/agentes"
-    ) {
-
-        await manejarAgentes(
-            req,
-            res
-        );
-
-        return;
-    }
-
-    // =================================================
-    // POST /send-message
-    // =================================================
-
-    if (
-        method === "POST" &&
-        pathname === "/send-message"
-    ) {
-
-        await manejarEnviarMensaje(
-            req,
-            res
-        );
-
-        return;
-    }
-
-    // =================================================
-    // RUTAS DINÁMICAS DE TICKETS
-    // =================================================
-
-    const ticketMatch =
-        pathname.match(
-            /^\/tickets\/(\d+)$/
-        );
-
-    if (
-        method === "GET" &&
-        ticketMatch
-    ) {
-
-        await manejarTicketIndividual(
-            req,
-            res,
-            ticketMatch[1]
-        );
-
-        return;
-    }
-
-    // =================================================
-    // ASIGNAR AGENTE
-    // =================================================
-
-    const assignMatch =
-        pathname.match(
-            /^\/tickets\/(\d+)\/assign$/
-        );
-
-    if (
-        method === "POST" &&
-        assignMatch
-    ) {
-
-        await manejarAsignarAgente(
-            req,
-            res,
-            assignMatch[1]
-        );
-
-        return;
-    }
-
-    // =================================================
-    // ACTUALIZAR ESTADO
-    // =================================================
-
-    const statusMatch =
-        pathname.match(
-            /^\/tickets\/(\d+)\/status$/
-        );
-
-    if (
-        method === "POST" &&
-        statusMatch
-    ) {
-
-        await manejarActualizarEstado(
-            req,
-            res,
-            statusMatch[1]
-        );
-
-        return;
-    }
-
-    // =================================================
-    // ACTUALIZAR PRIORIDAD
-    // =================================================
-
-    const priorityMatch =
-        pathname.match(
-            /^\/tickets\/(\d+)\/priority$/
-        );
-
-    if (
-        method === "POST" &&
-        priorityMatch
-    ) {
-
-        await manejarActualizarPrioridad(
-            req,
-            res,
-            priorityMatch[1]
-        );
-
-        return;
-    }
-
-    // =================================================
-    // ACTUALIZAR CATEGORÍA
-    // =================================================
-
-    const categoryMatch =
-        pathname.match(
-            /^\/tickets\/(\d+)\/category$/
-        );
-
-    if (
-        method === "POST" &&
-        categoryMatch
-    ) {
-
-        await manejarActualizarCategoria(
-            req,
-            res,
-            categoryMatch[1]
-        );
-
-        return;
-    }
-
-    // =================================================
-    // CERRAR TICKET
-    // =================================================
-
-    const closeMatch =
-        pathname.match(
-            /^\/tickets\/(\d+)\/close$/
-        );
-
-    if (
-        method === "POST" &&
-        closeMatch
-    ) {
-
-        await manejarCerrarTicket(
-            req,
-            res,
-            closeMatch[1]
-        );
-
-        return;
-    }
-
-    // =================================================
-    // RUTA NO ENCONTRADA
-    // =================================================
-
-    responderJSON(
-        res,
-        404,
-        {
-            success:
-                false,
-
-            error:
-                "Ruta no encontrada."
-        }
-    );
-}
-
-// =====================================================
-// SERVIDOR HTTP
+// SERVIDOR
 // =====================================================
 
 const server =
@@ -3915,38 +2531,908 @@ const server =
 
             try {
 
-                await manejarSolicitud(
-                    req,
-                    res
+                const parsedUrl =
+                    url.parse(
+                        req.url,
+                        true
+                    );
+
+                const pathname =
+                    parsedUrl.pathname;
+
+                // =========================================
+                // HEALTH
+                // =========================================
+
+                if (
+                    req.method === "GET" &&
+                    pathname === "/health"
+                ) {
+
+                    await manejarHealth(
+                        res
+                    );
+
+                    return;
+                }
+
+                // =========================================
+                // WEBHOOK GET
+                // =========================================
+
+                if (
+                    req.method === "GET" &&
+                    pathname === "/webhook"
+                ) {
+
+                    const mode =
+                        parsedUrl.query[
+                            "hub.mode"
+                        ];
+
+                    const token =
+                        parsedUrl.query[
+                            "hub.verify_token"
+                        ];
+
+                    const challenge =
+                        parsedUrl.query[
+                            "hub.challenge"
+                        ];
+
+                    if (
+                        mode === "subscribe" &&
+                        token === VERIFY_TOKEN
+                    ) {
+
+                        console.log(
+                            "Webhook de Meta verificado correctamente."
+                        );
+
+                        res.writeHead(
+                            200,
+                            {
+                                "Content-Type":
+                                    "text/plain"
+                            }
+                        );
+
+                        res.end(
+                            challenge
+                        );
+
+                    } else {
+
+                        res.writeHead(
+                            403,
+                            {
+                                "Content-Type":
+                                    "text/plain"
+                            }
+                        );
+
+                        res.end(
+                            "Forbidden"
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
+                // WEBHOOK POST
+                // =========================================
+
+                if (
+                    req.method === "POST" &&
+                    pathname === "/webhook"
+                ) {
+
+                    await manejarWebhook(
+                        req,
+                        res
+                    );
+
+                    return;
+                }
+
+                // =========================================
+                // AGENTES
+                // =========================================
+
+                if (
+                    req.method === "GET" &&
+                    pathname === "/agentes"
+                ) {
+
+                    try {
+
+                        const {
+                            data,
+                            error
+                        } =
+                            await supabase
+                                .from("agentes")
+                                .select("*")
+                                .order(
+                                    "nombre",
+                                    {
+                                        ascending:
+                                            true
+                                    }
+                                );
+
+                        if (error) {
+                            throw error;
+                        }
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+
+                                agentes:
+                                    data || []
+                            }
+                        );
+
+                    } catch (error) {
+
+                        responderJSON(
+                            res,
+                            500,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
+                // LISTAR / BUSCAR TICKETS
+                // =========================================
+
+                if (
+                    req.method === "GET" &&
+                    pathname === "/tickets"
+                ) {
+
+                    try {
+
+                        const buscar =
+                            parsedUrl
+                                .query
+                                .buscar ||
+                            "";
+
+                        const tickets =
+                            await obtenerTickets(
+                                buscar
+                            );
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+
+                                buscar:
+                                    buscar,
+
+                                total:
+                                    tickets.length,
+
+                                tickets:
+                                    tickets
+                            }
+                        );
+
+                    } catch (error) {
+
+                        console.error(
+                            "Error en /tickets:",
+                            error
+                        );
+
+                        responderJSON(
+                            res,
+                            500,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    "Error obteniendo tickets: " +
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
+                // TICKET INDIVIDUAL
+                // =========================================
+
+                if (
+                    req.method === "GET" &&
+                    /^\/tickets\/\d+$/
+                        .test(pathname)
+                ) {
+
+                    const id =
+                        obtenerIdTicket(
+                            pathname
+                        );
+
+                    if (!id) {
+
+                        responderJSON(
+                            res,
+                            400,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    "ID de ticket inválido."
+                            }
+                        );
+
+                        return;
+                    }
+
+                    try {
+
+                        const ticket =
+                            await obtenerTicketCompleto(
+                                id
+                            );
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+
+                                ticket:
+                                    ticket,
+
+                                mensajes:
+                                    ticket.mensajes,
+
+                                historial:
+                                    ticket.historial
+                            }
+                        );
+
+                    } catch (error) {
+
+                        responderJSON(
+                            res,
+                            404,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
+                // ASIGNAR AGENTE
+                // POST /tickets/:id/assign
+                // =========================================
+
+                if (
+                    req.method === "POST" &&
+                    /^\/tickets\/\d+\/assign$/
+                        .test(pathname)
+                ) {
+
+                    try {
+
+                        const partes =
+                            pathname
+                                .split("/")
+                                .filter(Boolean);
+
+                        const id =
+                            Number(
+                                partes[1]
+                            );
+
+                        const data =
+                            await leerBody(
+                                req
+                            );
+
+                        let agenteId =
+                            data.agente_id;
+
+                        if (
+                            agenteId === undefined
+                        ) {
+
+                            throw new Error(
+                                "Falta agente_id."
+                            );
+                        }
+
+                        if (
+                            agenteId !== null
+                        ) {
+
+                            agenteId =
+                                Number(
+                                    agenteId
+                                );
+
+                            if (
+                                !Number.isInteger(
+                                    agenteId
+                                )
+                            ) {
+
+                                throw new Error(
+                                    "agente_id inválido."
+                                );
+                            }
+                        }
+
+                        const ticket =
+                            await asignarAgente(
+                                id,
+                                agenteId
+                            );
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+
+                                ticket:
+                                    ticket
+                            }
+                        );
+
+                    } catch (error) {
+
+                        responderJSON(
+                            res,
+                            500,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
+                // ESTADO
+                // POST /tickets/:id/status
+                // =========================================
+
+                if (
+                    req.method === "POST" &&
+                    /^\/tickets\/\d+\/status$/
+                        .test(pathname)
+                ) {
+
+                    try {
+
+                        const partes =
+                            pathname
+                                .split("/")
+                                .filter(Boolean);
+
+                        const id =
+                            Number(
+                                partes[1]
+                            );
+
+                        const data =
+                            await leerBody(
+                                req
+                            );
+
+                        const estado =
+                            String(
+                                data.estado ||
+                                ""
+                            )
+                                .trim()
+                                .toLowerCase();
+
+                        const agenteId =
+                            data.agente_id
+                                ? Number(
+                                    data.agente_id
+                                )
+                                : null;
+
+                        const ticket =
+                            await actualizarEstado(
+                                id,
+                                estado,
+                                agenteId
+                            );
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+
+                                ticket:
+                                    ticket
+                            }
+                        );
+
+                    } catch (error) {
+
+                        responderJSON(
+                            res,
+                            500,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
+                // PRIORIDAD
+                // POST /tickets/:id/priority
+                // =========================================
+
+                if (
+                    req.method === "POST" &&
+                    /^\/tickets\/\d+\/priority$/
+                        .test(pathname)
+                ) {
+
+                    try {
+
+                        const partes =
+                            pathname
+                                .split("/")
+                                .filter(Boolean);
+
+                        const id =
+                            Number(
+                                partes[1]
+                            );
+
+                        const data =
+                            await leerBody(
+                                req
+                            );
+
+                        const prioridad =
+                            String(
+                                data.prioridad ||
+                                ""
+                            )
+                                .trim()
+                                .toLowerCase();
+
+                        const agenteId =
+                            data.agente_id
+                                ? Number(
+                                    data.agente_id
+                                )
+                                : null;
+
+                        const ticket =
+                            await actualizarPrioridad(
+                                id,
+                                prioridad,
+                                agenteId
+                            );
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+
+                                ticket:
+                                    ticket
+                            }
+                        );
+
+                    } catch (error) {
+
+                        responderJSON(
+                            res,
+                            500,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
+                // CATEGORÍA
+                // POST /tickets/:id/category
+                // =========================================
+
+                if (
+                    req.method === "POST" &&
+                    /^\/tickets\/\d+\/category$/
+                        .test(pathname)
+                ) {
+
+                    try {
+
+                        const partes =
+                            pathname
+                                .split("/")
+                                .filter(Boolean);
+
+                        const id =
+                            Number(
+                                partes[1]
+                            );
+
+                        const data =
+                            await leerBody(
+                                req
+                            );
+
+                        const categoria =
+                            data.categoria == null
+                                ? null
+                                : String(
+                                    data.categoria
+                                ).trim();
+
+                        const agenteId =
+                            data.agente_id
+                                ? Number(
+                                    data.agente_id
+                                )
+                                : null;
+
+                        const ticket =
+                            await actualizarCategoria(
+                                id,
+                                categoria,
+                                agenteId
+                            );
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+
+                                ticket:
+                                    ticket
+                            }
+                        );
+
+                    } catch (error) {
+
+                        responderJSON(
+                            res,
+                            500,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
+                // CERRAR
+                // POST /tickets/:id/close
+                // =========================================
+
+                if (
+                    req.method === "POST" &&
+                    /^\/tickets\/\d+\/close$/
+                        .test(pathname)
+                ) {
+
+                    try {
+
+                        const partes =
+                            pathname
+                                .split("/")
+                                .filter(Boolean);
+
+                        const id =
+                            Number(
+                                partes[1]
+                            );
+
+                        const data =
+                            await leerBody(
+                                req
+                            );
+
+                        const agenteId =
+                            data.agente_id
+                                ? Number(
+                                    data.agente_id
+                                )
+                                : null;
+
+                        const resultado =
+                            await cerrarTicket(
+                                id,
+                                agenteId
+                            );
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+
+                                ticket:
+                                    resultado.ticket,
+
+                                mensaje_cliente:
+                                    resultado.mensajeEnviado
+                                        ? "Ticket cerrado y mensaje de cierre enviado."
+                                        : "Ticket cerrado."
+                            }
+                        );
+
+                    } catch (error) {
+
+                        responderJSON(
+                            res,
+                            500,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
+                // ENVIAR MENSAJE
+                // POST /send-message
+                // =========================================
+
+                if (
+                    req.method === "POST" &&
+                    pathname === "/send-message"
+                ) {
+
+                    try {
+
+                        const data =
+                            await leerBody(
+                                req
+                            );
+
+                        const telefono =
+                            data.to;
+
+                        const mensaje =
+                            data.message;
+
+                        const conversacionId =
+                            data.conversacion_id;
+
+                        const agenteId =
+                            data.agente_id
+                                ? Number(
+                                    data.agente_id
+                                )
+                                : null;
+
+                        if (
+                            !telefono ||
+                            !mensaje
+                        ) {
+
+                            responderJSON(
+                                res,
+                                400,
+                                {
+                                    success:
+                                        false,
+
+                                    error:
+                                        "Faltan los campos 'to' y 'message'."
+                                }
+                            );
+
+                            return;
+                        }
+
+                        const resultado =
+                            await enviarWhatsApp(
+                                telefono,
+                                mensaje
+                            );
+
+                        if (
+                            conversacionId
+                        ) {
+
+                            const {
+                                data:
+                                    conversacion,
+                                error
+                            } =
+                                await supabase
+                                    .from(
+                                        "conversaciones"
+                                    )
+                                    .select("*")
+                                    .eq(
+                                        "id",
+                                        conversacionId
+                                    )
+                                    .single();
+
+                            if (error) {
+                                throw error;
+                            }
+
+                            await guardarMensajeSaliente(
+                                conversacion,
+                                mensaje,
+                                agenteId,
+                                resultado
+                                    ?.messages?.[0]?.id ||
+                                null
+                            );
+                        }
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+
+                                whatsapp:
+                                    resultado
+                            }
+                        );
+
+                    } catch (error) {
+
+                        console.error(
+                            "Error enviando mensaje:",
+                            error
+                        );
+
+                        responderJSON(
+                            res,
+                            500,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
+                // RAÍZ
+                // =========================================
+
+                if (
+                    req.method === "GET" &&
+                    pathname === "/"
+                ) {
+
+                    res.writeHead(
+                        200,
+                        {
+                            "Content-Type":
+                                "text/plain; charset=utf-8"
+                        }
+                    );
+
+                    res.end(
+                        "TR Soporte - WhatsApp Webhook funcionando."
+                    );
+
+                    return;
+                }
+
+                // =========================================
+                // 404
+                // =========================================
+
+                responderJSON(
+                    res,
+                    404,
+                    {
+                        success:
+                            false,
+
+                        error:
+                            "Ruta no encontrada."
+                    }
                 );
 
             } catch (error) {
 
                 console.error(
-                    "Error no controlado:",
+                    "ERROR NO CONTROLADO:",
                     error
                 );
 
-                if (
-                    !res.headersSent
-                ) {
+                responderJSON(
+                    res,
+                    500,
+                    {
+                        success:
+                            false,
 
-                    responderJSON(
-                        res,
-                        500,
-                        {
-                            success:
-                                false,
-
-                            error:
-                                error.message
-                        }
-                    );
-
-                } else {
-
-                    res.end();
-                }
+                        error:
+                            error.message
+                    }
+                );
             }
         }
     );
