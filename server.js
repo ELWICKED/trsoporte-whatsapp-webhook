@@ -1730,12 +1730,13 @@ async function obtenerTicketCompleto(
             .from("conversaciones")
             .select(`
                 *,
-                cliente:clientes(
-                    id,
-                    nombre,
-                    telefono,
-                    empresa
-                ),
+cliente:clientes(
+    id,
+    nombre,
+    telefono,
+    empresa,
+    bloqueado
+),
                 agente:agentes(
                     id,
                     nombre,
@@ -1838,12 +1839,13 @@ async function obtenerTickets(
             .from("conversaciones")
             .select(`
                 *,
-                cliente:clientes(
-                    id,
-                    nombre,
-                    telefono,
-                    empresa
-                ),
+cliente:clientes(
+    id,
+    nombre,
+    telefono,
+    empresa,
+    bloqueado
+),
                 agente:agentes(
                     id,
                     nombre,
