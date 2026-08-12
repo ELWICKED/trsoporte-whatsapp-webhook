@@ -1265,6 +1265,23 @@ async function procesarMensajeEntrante(
         );
 
     // =================================================
+    // CLIENTE BLOQUEADO
+    // =================================================
+
+    // El bloqueo es manual y lo realiza un agente desde
+    // el sistema. Un cliente bloqueado no genera tickets,
+    // no procesa multimedia y no recibe respuestas automáticas.
+    if (cliente.bloqueado === true) {
+
+        console.log(
+            "Mensaje ignorado: cliente bloqueado.",
+            telefono
+        );
+
+        return;
+    }
+
+    // =================================================
     // CALIFICACIÓN
     // =================================================
 
@@ -2189,6 +2206,94 @@ async function actualizarCategoria(
 
     return data;
 }
+
+// =====================================================
+// BLOQUEAR / DESBLOQUEAR CLIENTE
+// =====================================================
+
+async function actualizarBloqueoCliente(
+    clienteId,
+    bloqueado,
+    agenteId = null
+) {
+
+    if (!Number.isInteger(clienteId) || clienteId <= 0) {
+
+        throw new Error(
+            "ID de cliente inválido."
+        );
+    }
+
+    const {
+        data: cliente,
+        error
+    } =
+        await supabase
+            .from("clientes")
+            .update({
+                bloqueado:
+                    Boolean(bloqueado)
+            })
+            .eq(
+                "id",
+                clienteId
+            )
+            .select("*")
+            .single();
+
+    if (error) {
+
+        throw error;
+    }
+
+    // Si existe un ticket abierto para el cliente, dejamos
+    // constancia del bloqueo/desbloqueo en su historial.
+    const {
+        data: conversacion,
+        error: errorConversacion
+    } =
+        await supabase
+            .from("conversaciones")
+            .select("id")
+            .eq(
+                "cliente_id",
+                clienteId
+            )
+            .eq(
+                "estado",
+                "abierta"
+            )
+            .order(
+                "ultima_interaccion",
+                {
+                    ascending: false
+                }
+            )
+            .limit(1)
+            .maybeSingle();
+
+    if (errorConversacion) {
+
+        throw errorConversacion;
+    }
+
+    if (conversacion) {
+
+        await registrarHistorial(
+            conversacion.id,
+            agenteId,
+            bloqueado
+                ? "cliente_bloqueado"
+                : "cliente_desbloqueado",
+            bloqueado
+                ? "El cliente fue bloqueado por un agente. Los nuevos mensajes serán ignorados."
+                : "El cliente fue desbloqueado por un agente. Los nuevos mensajes volverán a procesarse normalmente."
+        );
+    }
+
+    return cliente;
+}
+
 
 // =====================================================
 // CERRAR TICKET
@@ -3154,6 +3259,166 @@ const server =
                         );
 
                     } catch (error) {
+
+                        responderJSON(
+                            res,
+                            500,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
+                // BLOQUEAR CLIENTE
+                // POST /clientes/:id/block
+                // =========================================
+
+                if (
+                    req.method === "POST" &&
+                    /^\/clientes\/\d+\/block$/
+                        .test(pathname)
+                ) {
+
+                    try {
+
+                        const partes =
+                            pathname
+                                .split("/")
+                                .filter(Boolean);
+
+                        const clienteId =
+                            Number(
+                                partes[1]
+                            );
+
+                        const data =
+                            await leerBody(
+                                req
+                            );
+
+                        const agenteId =
+                            data.agente_id
+                                ? Number(
+                                    data.agente_id
+                                )
+                                : null;
+
+                        const cliente =
+                            await actualizarBloqueoCliente(
+                                clienteId,
+                                true,
+                                agenteId
+                            );
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+
+                                cliente:
+                                    cliente,
+
+                                mensaje:
+                                    "Cliente bloqueado correctamente."
+                            }
+                        );
+
+                    } catch (error) {
+
+                        console.error(
+                            "Error bloqueando cliente:",
+                            error
+                        );
+
+                        responderJSON(
+                            res,
+                            500,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
+                // DESBLOQUEAR CLIENTE
+                // POST /clientes/:id/unblock
+                // =========================================
+
+                if (
+                    req.method === "POST" &&
+                    /^\/clientes\/\d+\/unblock$/
+                        .test(pathname)
+                ) {
+
+                    try {
+
+                        const partes =
+                            pathname
+                                .split("/")
+                                .filter(Boolean);
+
+                        const clienteId =
+                            Number(
+                                partes[1]
+                            );
+
+                        const data =
+                            await leerBody(
+                                req
+                            );
+
+                        const agenteId =
+                            data.agente_id
+                                ? Number(
+                                    data.agente_id
+                                )
+                                : null;
+
+                        const cliente =
+                            await actualizarBloqueoCliente(
+                                clienteId,
+                                false,
+                                agenteId
+                            );
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+
+                                cliente:
+                                    cliente,
+
+                                mensaje:
+                                    "Cliente desbloqueado correctamente."
+                            }
+                        );
+
+                    } catch (error) {
+
+                        console.error(
+                            "Error desbloqueando cliente:",
+                            error
+                        );
 
                         responderJSON(
                             res,
