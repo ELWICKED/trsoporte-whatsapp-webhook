@@ -519,6 +519,70 @@ async function enviarWhatsAppMarketingTexto(
 }
 
 // =====================================================
+// WHATSAPP - ENVIAR SEGÚN EL NÚMERO DE ORIGEN
+// =====================================================
+// La conversación guarda whatsapp_phone_number_id.
+// Esto evita usar la categoría del ticket para decidir
+// desde qué WhatsApp sale la respuesta.
+//
+// SOPORTE  -> META_PHONE_NUMBER_ID
+// MARKETING -> MARKETING_PHONE_NUMBER_ID
+//
+// Si un ticket viejo no tiene el ID guardado, se mantiene
+// el comportamiento seguro anterior: sale por Soporte.
+// =====================================================
+
+async function enviarWhatsAppDesdeConversacion(
+    conversacion,
+    telefono,
+    mensaje
+) {
+
+    const phoneNumberId =
+        String(
+            conversacion?.whatsapp_phone_number_id ||
+            ""
+        );
+
+    if (
+        phoneNumberId &&
+        MARKETING_PHONE_NUMBER_ID &&
+        phoneNumberId === String(MARKETING_PHONE_NUMBER_ID)
+    ) {
+
+        console.log(
+            `[WHATSAPP] Enviando por MARKETING. Phone Number ID: ${phoneNumberId}`
+        );
+
+        return await enviarWhatsAppMarketingTexto(
+            telefono,
+            mensaje
+        );
+    }
+
+    if (
+        phoneNumberId &&
+        PHONE_NUMBER_ID &&
+        phoneNumberId !== String(PHONE_NUMBER_ID)
+    ) {
+
+        console.warn(
+            `[WHATSAPP] Phone Number ID desconocido (${phoneNumberId}). Se usará Soporte por seguridad.`
+        );
+    } else {
+
+        console.log(
+            `[WHATSAPP] Enviando por SOPORTE. Phone Number ID: ${PHONE_NUMBER_ID || "no configurado"}`
+        );
+    }
+
+    return await enviarWhatsApp(
+        telefono,
+        mensaje
+    );
+}
+
+// =====================================================
 // GUARDAR MENSAJE SALIENTE
 // =====================================================
 
@@ -1332,7 +1396,8 @@ async function obtenerConversacionAbierta(
 // =====================================================
 
 async function crearConversacion(
-    clienteId
+    clienteId,
+    whatsappPhoneNumberId
 ) {
 
     const {
@@ -1351,6 +1416,10 @@ async function crearConversacion(
 
                 prioridad:
                     "normal",
+
+                whatsapp_phone_number_id:
+                    whatsappPhoneNumberId ||
+                    PHONE_NUMBER_ID,
 
                 ultima_interaccion:
                     new Date()
@@ -1438,6 +1507,14 @@ async function procesarMensajeEntrante(
     const whatsappMessageId =
         message.id ||
         null;
+
+    // Meta indica exactamente a qué número de WhatsApp llegó el mensaje.
+    const whatsappPhoneNumberId =
+        String(
+            value?.metadata?.phone_number_id ||
+            PHONE_NUMBER_ID ||
+            ""
+        );
 
     const tipo =
         message.type ||
@@ -1636,7 +1713,8 @@ async function procesarMensajeEntrante(
                 `⭐ Gracias por calificar la atención del ticket #${ultimaConversacion.numero_ticket}.\n\nTu valoración fue registrada correctamente.\n\n¡Gracias por confiar en TR Soporte!`;
 
             const resultado =
-                await enviarWhatsApp(
+                await enviarWhatsAppDesdeConversacion(
+                    ultimaConversacion,
                     telefono,
                     gracias
                 );
@@ -1674,7 +1752,8 @@ async function procesarMensajeEntrante(
 
         conversacion =
             await crearConversacion(
-                cliente.id
+                cliente.id,
+                whatsappPhoneNumberId
             );
 
         ticketCreado =
@@ -1930,7 +2009,8 @@ async function procesarMensajeEntrante(
         );
 
         const resultado =
-            await enviarWhatsApp(
+            await enviarWhatsAppDesdeConversacion(
+                conversacion,
                 telefono,
                 respuestaAutomatica
             );
@@ -2618,7 +2698,8 @@ async function cerrarTicket(
             `📋 Tu ticket #${ticket.numero_ticket} fue cerrado correctamente.\n\nEsperamos haber podido ayudarte.\n\n⭐ ¿Cómo calificarías la atención recibida?\n\nRespondé con un número del 1 al 5:\n\n1️⃣ Muy mala\n2️⃣ Mala\n3️⃣ Regular\n4️⃣ Buena\n5️⃣ Excelente`;
 
         const resultado =
-            await enviarWhatsApp(
+            await enviarWhatsAppDesdeConversacion(
+                ticket,
                 cliente.telefono,
                 mensajeCierre
             );
@@ -3100,6 +3181,8 @@ async function crearConversacionMarketing(
                 estado: "abierta",
                 prioridad: "normal",
                 categoria: "Marketing",
+                whatsapp_phone_number_id:
+                    MARKETING_PHONE_NUMBER_ID,
                 ultima_interaccion: new Date().toISOString()
             })
             .select()
@@ -4402,22 +4485,23 @@ const server =
                             }
 
                             conversacion = data;
+
+                            console.log(
+                                `[WHATSAPP] Conversación ${conversacion.id} -> phone_number_id: ${conversacion.whatsapp_phone_number_id || "NULL"}`
+                            );
                         }
 
-                        // Marketing -> número de Marketing.
-                        // Soporte -> número de Soporte.
-                        // Si no hay conversación, conservamos el
-                        // comportamiento anterior: Soporte.
-                        const esMarketing =
-                            conversacion &&
-                            String(
-                                conversacion.categoria || ""
-                            ).toLowerCase() ===
-                            "marketing";
-
+                        // IMPORTANTE:
+                        // El número de salida NO se decide por categoría.
+                        // Se decide por whatsapp_phone_number_id, que es el
+                        // número real que originó la conversación.
+                        //
+                        // Esto evita que un ticket de Soporte marcado como
+                        // "Marketing" salga accidentalmente por Marketing.
                         const resultado =
-                            esMarketing
-                                ? await enviarWhatsAppMarketingTexto(
+                            conversacion
+                                ? await enviarWhatsAppDesdeConversacion(
+                                    conversacion,
                                     telefono,
                                     mensaje
                                 )
