@@ -74,15 +74,18 @@ const WHATSAPP_MEDIA_BUCKET =
     "whatsapp-media";
 
 // =====================================================
-// [AGREGADO] MARKETING WHATSAPP
+// MARKETING WHATSAPP
 // =====================================================
 // IMPORTANTE:
 // Este módulo está separado del flujo de Soporte.
 // Por seguridad, el envío está DESACTIVADO por defecto.
-// Solo se procesan contactos con baja_comunicaciones = false.
-// La habilitación real debe hacerse únicamente para contactos
-// que tengan una base legal/consentimiento válido para recibir
-// comunicaciones de marketing.
+// El servidor NO ejecuta campañas automáticamente.
+// La aplicación de Windows controla horarios, límites y envíos.
+// Solo se deben enviar comunicaciones a contactos con una base
+// legal/consentimiento válido y respetando las bajas solicitadas.
+
+const MARKETING_ENABLED =
+    String(process.env.MARKETING_ENABLED || "false").toLowerCase() === "true";
 
 const MARKETING_ACCESS_TOKEN =
     process.env.MARKETING_ACCESS_TOKEN;
@@ -2731,195 +2734,6 @@ function marketingNormalizarTelefono(telefono) {
         .replace(/^00/, "");
 }
 
-function marketingObtenerComponentes() {
-    const bruto =
-        process.env.MARKETING_TEMPLATE_COMPONENTS_JSON;
-
-    if (!bruto) return undefined;
-
-    try {
-        const componentes = JSON.parse(bruto);
-
-        if (!Array.isArray(componentes)) {
-            throw new Error(
-                "MARKETING_TEMPLATE_COMPONENTS_JSON debe ser un array JSON."
-            );
-        }
-
-        return componentes;
-    } catch (error) {
-        throw new Error(
-            "MARKETING_TEMPLATE_COMPONENTS_JSON inválido: " +
-            error.message
-        );
-    }
-}
-
-async function enviarWhatsAppMarketing(telefono) {
-    if (!MARKETING_ACCESS_TOKEN) {
-        throw new Error(
-            "MARKETING_ACCESS_TOKEN no configurado."
-        );
-    }
-
-    if (!MARKETING_PHONE_NUMBER_ID) {
-        throw new Error(
-            "MARKETING_PHONE_NUMBER_ID no configurado."
-        );
-    }
-
-    const whatsappUrl =
-        `https://graph.facebook.com/${MARKETING_API_VERSION}/${MARKETING_PHONE_NUMBER_ID}/messages`;
-
-    const plantilla = {
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to: telefono,
-        type: "template",
-        template: {
-            name: MARKETING_TEMPLATE_NAME,
-            language: {
-                code: MARKETING_TEMPLATE_LANGUAGE
-            }
-        }
-    };
-
-    const componentes =
-        marketingObtenerComponentes();
-
-    if (componentes) {
-        plantilla.template.components =
-            componentes;
-    }
-
-    const response =
-        await fetch(
-            whatsappUrl,
-            {
-                method: "POST",
-                headers: {
-                    "Authorization":
-                        `Bearer ${MARKETING_ACCESS_TOKEN}`,
-                    "Content-Type":
-                        "application/json"
-                },
-                body:
-                    JSON.stringify(plantilla)
-            }
-        );
-
-    const result =
-        await response.json();
-
-    if (!response.ok) {
-        throw new Error(
-            result?.error?.message ||
-            "Meta rechazó el mensaje de Marketing."
-        );
-    }
-
-    return result;
-}
-
-async function marketingObtenerEstadoEnvio(
-    campanaId,
-    marketingContactoId
-) {
-    const { data, error } =
-        await supabase
-            .from("envios_marketing")
-            .select("*")
-            .eq("campana_id", campanaId)
-            .eq("marketing_contacto_id", marketingContactoId)
-            .maybeSingle();
-
-    if (error) throw error;
-
-    return data;
-}
-
-async function marketingCrearEnvioPendiente(
-    campanaId,
-    marketingContactoId
-) {
-    const existente =
-        await marketingObtenerEstadoEnvio(
-            campanaId,
-            marketingContactoId
-        );
-
-    if (existente) return existente;
-
-    const { data, error } =
-        await supabase
-            .from("envios_marketing")
-            .insert({
-                campana_id: campanaId,
-                marketing_contacto_id:
-                    marketingContactoId,
-                estado: "pendiente"
-            })
-            .select()
-            .single();
-
-    if (error) throw error;
-
-    return data;
-}
-
-async function marketingObtenerContactoPorId(
-    marketingContactoId
-) {
-    const id =
-        Number(marketingContactoId);
-
-    if (
-        !Number.isInteger(id) ||
-        id <= 0
-    ) {
-        throw new Error(
-            "marketing_contacto_id inválido."
-        );
-    }
-
-    const { data, error } =
-        await supabase
-            .from("marketing_contactos")
-            .select(
-                "id, telefono, nombre, activo, baja_comunicaciones, bloqueado"
-            )
-            .eq("id", id)
-            .maybeSingle();
-
-    if (error) throw error;
-
-    if (!data) {
-        throw new Error(
-            "Contacto de Marketing no encontrado."
-        );
-    }
-
-    if (!data.activo) {
-        throw new Error(
-            "El contacto de Marketing está inactivo."
-        );
-    }
-
-    if (data.baja_comunicaciones) {
-        throw new Error(
-            "El contacto solicitó baja de comunicaciones."
-        );
-    }
-
-    if (data.bloqueado) {
-        throw new Error(
-            "El contacto de Marketing está bloqueado."
-        );
-    }
-
-    return data;
-}
-
 async function marketingMarcarEnvio(
     envioId,
     datos
@@ -2931,115 +2745,6 @@ async function marketingMarcarEnvio(
             .eq("id", envioId);
 
     if (error) throw error;
-}
-
-/*
- * El envío de Marketing ya NO tiene scheduler.
- *
- * La aplicación decide:
- *   - cuándo enviar;
- *   - cuántos enviar;
- *   - qué campaña utilizar;
- *   - qué contacto enviar.
- *
- * Render solamente actúa como puente entre la aplicación,
- * Supabase y Meta WhatsApp.
- */
-async function marketingEnviarContacto(
-    campanaId,
-    marketingContactoId
-) {
-    const idCampana =
-        Number(campanaId);
-
-    if (
-        !Number.isInteger(idCampana) ||
-        idCampana <= 0
-    ) {
-        throw new Error(
-            "campana_id inválido."
-        );
-    }
-
-    const contacto =
-        await marketingObtenerContactoPorId(
-            marketingContactoId
-        );
-
-    const envio =
-        await marketingCrearEnvioPendiente(
-            idCampana,
-            contacto.id
-        );
-
-    if (
-        envio.estado === "enviado"
-    ) {
-        return {
-            envio,
-            contacto,
-            ya_enviado: true
-        };
-    }
-
-    try {
-        const resultado =
-            await enviarWhatsAppMarketing(
-                contacto.telefono
-            );
-
-        const messageId =
-            resultado
-                ?.messages?.[0]?.id ||
-            null;
-
-        await marketingMarcarEnvio(
-            envio.id,
-            {
-                whatsapp_message_id:
-                    messageId,
-                estado:
-                    "enviado",
-                enviado_en:
-                    new Date()
-                        .toISOString(),
-                error: null
-            }
-        );
-
-        return {
-            envio_id: envio.id,
-            campana_id: idCampana,
-            marketing_contacto_id:
-                contacto.id,
-            telefono:
-                contacto.telefono,
-            whatsapp_message_id:
-                messageId,
-            estado:
-                "enviado",
-            ya_enviado:
-                false,
-            whatsapp:
-                resultado
-        };
-
-    } catch (errorEnvio) {
-
-        await marketingMarcarEnvio(
-            envio.id,
-            {
-                estado:
-                    "error",
-                enviado_en:
-                    null,
-                error:
-                    errorEnvio.message
-            }
-        );
-
-        throw errorEnvio;
-    }
 }
 
 async function marketingBuscarContactoPorTelefono(
@@ -4023,41 +3728,49 @@ const server =
                 }
 
                 // =========================================
-                // MARKETING - ENVIAR CONTACTO
-                // POST /marketing/send
-                //
-                // La aplicación controla cantidad, horario y
-                // frecuencia. Render solamente ejecuta el envío.
+                // PRUEBA MANUAL MARKETING
+                // POST /marketing/test
                 // =========================================
+                // Envía UNA sola plantilla de Marketing.
+                // No crea tickets y no ejecuta ningún scheduler.
+                // La aplicación de Windows puede utilizar esta ruta
+                // para comprobar Meta/WhatsApp antes de una campaña.
 
                 if (
                     req.method === "POST" &&
-                    pathname === "/marketing/send"
+                    pathname === "/marketing/test"
                 ) {
 
                     try {
+
+                        if (!MARKETING_ENABLED) {
+
+                            responderJSON(
+                                res,
+                                403,
+                                {
+                                    success:
+                                        false,
+
+                                    error:
+                                        "Marketing está deshabilitado. Configure MARKETING_ENABLED=true para realizar la prueba."
+                                }
+                            );
+
+                            return;
+                        }
 
                         const data =
                             await leerBody(
                                 req
                             );
 
-                        const campanaId =
-                            Number(
-                                data.campana_id
+                        const telefono =
+                            marketingNormalizarTelefono(
+                                data.telefono || data.to
                             );
 
-                        const marketingContactoId =
-                            Number(
-                                data.marketing_contacto_id
-                            );
-
-                        if (
-                            !Number.isInteger(campanaId) ||
-                            campanaId <= 0 ||
-                            !Number.isInteger(marketingContactoId) ||
-                            marketingContactoId <= 0
-                        ) {
+                        if (!telefono || telefono.length < 8) {
 
                             responderJSON(
                                 res,
@@ -4067,7 +3780,7 @@ const server =
                                         false,
 
                                     error:
-                                        "Faltan 'campana_id' y/o 'marketing_contacto_id' válidos."
+                                        "Debe indicar un número de teléfono válido en el campo 'telefono'."
                                 }
                             );
 
@@ -4075,9 +3788,8 @@ const server =
                         }
 
                         const resultado =
-                            await marketingEnviarContacto(
-                                campanaId,
-                                marketingContactoId
+                            await enviarWhatsAppMarketing(
+                                telefono
                             );
 
                         responderJSON(
@@ -4087,7 +3799,10 @@ const server =
                                 success:
                                     true,
 
-                                marketing:
+                                telefono:
+                                    telefono,
+
+                                whatsapp:
                                     resultado
                             }
                         );
@@ -4095,7 +3810,7 @@ const server =
                     } catch (error) {
 
                         console.error(
-                            "Error enviando Marketing:",
+                            "[MARKETING] Error en prueba manual:",
                             error
                         );
 
@@ -4370,3 +4085,10 @@ server.listen(
     }
 );
 
+// =====================================================
+// MARKETING
+// =====================================================
+// El servidor NO importa TXT ni ejecuta el scheduler de Marketing.
+// La aplicación de Windows será responsable de importar contactos,
+// decidir horarios/límites y solicitar los envíos individuales.
+// El servidor conserva el envío a Meta y el registro de respuestas.
