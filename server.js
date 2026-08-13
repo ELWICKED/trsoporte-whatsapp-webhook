@@ -84,12 +84,6 @@ const WHATSAPP_MEDIA_BUCKET =
 // que tengan una base legal/consentimiento válido para recibir
 // comunicaciones de marketing.
 
-const fs = require("fs");
-const path = require("path");
-
-const MARKETING_ENABLED =
-    String(process.env.MARKETING_ENABLED || "false").toLowerCase() === "true";
-
 const MARKETING_ACCESS_TOKEN =
     process.env.MARKETING_ACCESS_TOKEN;
 
@@ -104,39 +98,9 @@ const MARKETING_TEMPLATE_LANGUAGE =
     process.env.MARKETING_TEMPLATE_LANGUAGE ||
     "es_AR";
 
-const MARKETING_CAMPAIGN_NAME =
-    process.env.MARKETING_CAMPAIGN_NAME ||
-    "Marketing WhatsApp";
-
-const MARKETING_DAILY_LIMIT =
-    Math.max(
-        1,
-        Number(process.env.MARKETING_DAILY_LIMIT || 10)
-    );
-
-const MARKETING_START_HOUR =
-    Number(process.env.MARKETING_START_HOUR || 9);
-
-const MARKETING_END_HOUR =
-    Number(process.env.MARKETING_END_HOUR || 18);
-
-const MARKETING_INTERVAL_MINUTES =
-    Math.max(
-        1,
-        Number(process.env.MARKETING_INTERVAL_MINUTES || 10)
-    );
-
-const MARKETING_CONTACTS_FILE =
-    process.env.MARKETING_CONTACTS_FILE || "";
-
-const MARKETING_BATCH_INTERVAL_MS =
-    60 * 1000;
-
 const MARKETING_API_VERSION =
     process.env.MARKETING_API_VERSION ||
     "v26.0";
-
-let marketingSchedulerRunning = false;
 
 // =====================================================
 // SUPABASE
@@ -2761,133 +2725,10 @@ async function manejarHealth(
 // de origen y se registran sin crear tickets de Soporte.
 // =====================================================
 
-function marketingEsDiaLaboral(fecha = new Date()) {
-    const dia = fecha.getDay();
-    return dia >= 1 && dia <= 5;
-}
-
-function marketingDentroDeHorario(fecha = new Date()) {
-    const hora = fecha.getHours() + fecha.getMinutes() / 60;
-
-    return (
-        hora >= MARKETING_START_HOUR &&
-        hora < MARKETING_END_HOUR
-    );
-}
-
 function marketingNormalizarTelefono(telefono) {
     return String(telefono || "")
         .replace(/[^\d]/g, "")
         .replace(/^00/, "");
-}
-
-async function marketingObtenerCampana() {
-    const { data, error } =
-        await supabase
-            .from("campanas")
-            .select("*")
-            .eq("nombre", MARKETING_CAMPAIGN_NAME)
-            .order("id", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-    if (error) throw error;
-
-    if (data) return data;
-
-    const { data: nueva, error: errorNueva } =
-        await supabase
-            .from("campanas")
-            .insert({
-                nombre: MARKETING_CAMPAIGN_NAME,
-                plantilla: MARKETING_TEMPLATE_NAME,
-                estado: "creada"
-            })
-            .select()
-            .single();
-
-    if (errorNueva) throw errorNueva;
-
-    return nueva;
-}
-
-async function marketingImportarTXT() {
-    if (!MARKETING_CONTACTS_FILE) {
-        return;
-    }
-
-    if (!fs.existsSync(MARKETING_CONTACTS_FILE)) {
-        console.log(
-            "[MARKETING] TXT no encontrado:",
-            MARKETING_CONTACTS_FILE
-        );
-        return;
-    }
-
-    const contenido =
-        fs.readFileSync(
-            MARKETING_CONTACTS_FILE,
-            "utf8"
-        );
-
-    const telefonos =
-        contenido
-            .split(/\r?\n/)
-            .map(marketingNormalizarTelefono)
-            .filter(t => t.length >= 8);
-
-    const unicos = [...new Set(telefonos)];
-
-    console.log(
-        `[MARKETING] TXT: ${unicos.length} teléfonos únicos.`
-    );
-
-    let insertados = 0;
-
-    for (const telefono of unicos) {
-        const { data: existente, error: errorBusqueda } =
-            await supabase
-                .from("marketing_contactos")
-                .select("id, telefono")
-                .eq("telefono", telefono)
-                .maybeSingle();
-
-        if (errorBusqueda) {
-            console.error(
-                "[MARKETING] Error buscando teléfono:",
-                telefono,
-                errorBusqueda.message
-            );
-            continue;
-        }
-
-        if (existente) continue;
-
-        const { error } =
-            await supabase
-                .from("marketing_contactos")
-                .insert({
-                    telefono: telefono,
-                    nombre: telefono,
-                    activo: true,
-                    baja_comunicaciones: false,
-                    bloqueado: false
-                });
-
-        if (!error) {
-            insertados++;
-        } else {
-            console.error(
-                "[MARKETING] Error insertando:",
-                telefono,
-                error.message
-            );
-        }
-    }
-
-    console.log(
-        `[MARKETING] Contactos nuevos importados: ${insertados}.`
-    );
 }
 
 function marketingObtenerComponentes() {
@@ -3026,110 +2867,57 @@ async function marketingCrearEnvioPendiente(
     return data;
 }
 
-async function marketingObtenerSiguienteContacto(
-    campanaId
+async function marketingObtenerContactoPorId(
+    marketingContactoId
 ) {
-    const { data: contactos, error } =
+    const id =
+        Number(marketingContactoId);
+
+    if (
+        !Number.isInteger(id) ||
+        id <= 0
+    ) {
+        throw new Error(
+            "marketing_contacto_id inválido."
+        );
+    }
+
+    const { data, error } =
         await supabase
             .from("marketing_contactos")
             .select(
                 "id, telefono, nombre, activo, baja_comunicaciones, bloqueado"
             )
-            .eq("activo", true)
-            .eq("baja_comunicaciones", false)
-            .eq("bloqueado", false)
-            .order("id", { ascending: true });
+            .eq("id", id)
+            .maybeSingle();
 
     if (error) throw error;
 
-    for (const contacto of contactos || []) {
-        const envio =
-            await marketingObtenerEstadoEnvio(
-                campanaId,
-                contacto.id
-            );
-
-        if (!envio) {
-            return contacto;
-        }
-
-        if (envio.estado === "pendiente") {
-            return contacto;
-        }
+    if (!data) {
+        throw new Error(
+            "Contacto de Marketing no encontrado."
+        );
     }
 
-    return null;
-}
-
-async function marketingContarEnviadosHoy(campanaId) {
-    const inicio = new Date();
-
-    inicio.setHours(
-        0,
-        0,
-        0,
-        0
-    );
-
-    const fin =
-        new Date(inicio);
-
-    fin.setDate(
-        fin.getDate() + 1
-    );
-
-    const { count, error } =
-        await supabase
-            .from("envios_marketing")
-            .select(
-                "id",
-                {
-                    count: "exact",
-                    head: true
-                }
-            )
-            .eq(
-                "campana_id",
-                campanaId
-            )
-            .not(
-                "enviado_en",
-                "is",
-                null
-            )
-            .gte(
-                "enviado_en",
-                inicio.toISOString()
-            )
-            .lt(
-                "enviado_en",
-                fin.toISOString()
-            );
-
-    if (error) throw error;
-
-    return count || 0;
-}
-
-function marketingMinutosEntreEnvios() {
-    const ventana =
-        Math.max(
-            1,
-            (MARKETING_END_HOUR -
-                MARKETING_START_HOUR) *
-            60
+    if (!data.activo) {
+        throw new Error(
+            "El contacto de Marketing está inactivo."
         );
+    }
 
-    return Math.max(
-        1,
-        Math.floor(
-            ventana /
-            Math.max(
-                1,
-                MARKETING_DAILY_LIMIT
-            )
-        )
-    );
+    if (data.baja_comunicaciones) {
+        throw new Error(
+            "El contacto solicitó baja de comunicaciones."
+        );
+    }
+
+    if (data.bloqueado) {
+        throw new Error(
+            "El contacto de Marketing está bloqueado."
+        );
+    }
+
+    return data;
 }
 
 async function marketingMarcarEnvio(
@@ -3145,285 +2933,113 @@ async function marketingMarcarEnvio(
     if (error) throw error;
 }
 
-async function marketingEnviarUno() {
-    if (!MARKETING_ENABLED) {
-        return;
+/*
+ * El envío de Marketing ya NO tiene scheduler.
+ *
+ * La aplicación decide:
+ *   - cuándo enviar;
+ *   - cuántos enviar;
+ *   - qué campaña utilizar;
+ *   - qué contacto enviar.
+ *
+ * Render solamente actúa como puente entre la aplicación,
+ * Supabase y Meta WhatsApp.
+ */
+async function marketingEnviarContacto(
+    campanaId,
+    marketingContactoId
+) {
+    const idCampana =
+        Number(campanaId);
+
+    if (
+        !Number.isInteger(idCampana) ||
+        idCampana <= 0
+    ) {
+        throw new Error(
+            "campana_id inválido."
+        );
     }
 
-    const ahora =
-        new Date();
+    const contacto =
+        await marketingObtenerContactoPorId(
+            marketingContactoId
+        );
 
-    if (!marketingEsDiaLaboral(ahora)) {
-        return;
+    const envio =
+        await marketingCrearEnvioPendiente(
+            idCampana,
+            contacto.id
+        );
+
+    if (
+        envio.estado === "enviado"
+    ) {
+        return {
+            envio,
+            contacto,
+            ya_enviado: true
+        };
     }
-
-    if (!marketingDentroDeHorario(ahora)) {
-        return;
-    }
-
-    if (marketingSchedulerRunning) {
-        return;
-    }
-
-    marketingSchedulerRunning = true;
 
     try {
-        const campana =
-            await marketingObtenerCampana();
-
-        const enviadosHoy =
-            await marketingContarEnviadosHoy(
-                campana.id
+        const resultado =
+            await enviarWhatsAppMarketing(
+                contacto.telefono
             );
 
-        if (
-            enviadosHoy >=
-            MARKETING_DAILY_LIMIT
-        ) {
-            console.log(
-                `[MARKETING] Límite diario alcanzado: ${enviadosHoy}/${MARKETING_DAILY_LIMIT}.`
-            );
-            return;
-        }
+        const messageId =
+            resultado
+                ?.messages?.[0]?.id ||
+            null;
 
-        const siguiente =
-            await marketingObtenerSiguienteContacto(
-                campana.id
-            );
-
-        if (!siguiente) {
-            console.log(
-                "[MARKETING] No hay más contactos elegibles."
-            );
-            return;
-        }
-
-        const envio =
-            await marketingCrearEnvioPendiente(
-                campana.id,
-                siguiente.id
-            );
-
-        try {
-            const resultado =
-                await enviarWhatsAppMarketing(
-                    siguiente.telefono
-                );
-
-            const messageId =
-                resultado
-                    ?.messages?.[0]?.id ||
-                null;
-
-            await marketingMarcarEnvio(
-                envio.id,
-                {
-                    whatsapp_message_id:
-                        messageId,
-                    estado:
-                        "enviado",
-                    enviado_en:
-                        new Date()
-                            .toISOString(),
-                    error: null
-                }
-            );
-
-            console.log(
-                `[MARKETING] Envío OK: ${siguiente.telefono}.`
-            );
-        } catch (errorEnvio) {
-            await marketingMarcarEnvio(
-                envio.id,
-                {
-                    estado:
-                        "error",
-                    enviado_en:
-                        null,
-                    error:
-                        errorEnvio.message
-                }
-            );
-
-            console.error(
-                `[MARKETING] Error con ${siguiente.telefono}:`,
-                errorEnvio.message
-            );
-        }
-    } catch (error) {
-        console.error(
-            "[MARKETING] Error general:",
-            error
-        );
-    } finally {
-        marketingSchedulerRunning =
-            false;
-    }
-}
-
-function marketingObtenerSiguienteHorario(fecha = new Date()) {
-    if (!marketingEsDiaLaboral(fecha)) {
-        return null;
-    }
-
-    const inicio =
-        new Date(fecha);
-
-    inicio.setHours(
-        MARKETING_START_HOUR,
-        0,
-        0,
-        0
-    );
-
-    const fin =
-        new Date(fecha);
-
-    fin.setHours(
-        MARKETING_END_HOUR,
-        0,
-        0,
-        0
-    );
-
-    if (fecha < inicio) {
-        return inicio;
-    }
-
-    if (fecha >= fin) {
-        return null;
-    }
-
-    const intervalo =
-        marketingMinutosEntreEnvios();
-
-    const minutosDesdeInicio =
-        Math.floor(
-            (fecha.getTime() -
-                inicio.getTime()) /
-            60000
-        );
-
-    const siguienteIndice =
-        Math.floor(
-            minutosDesdeInicio /
-            intervalo
-        ) + 1;
-
-    const siguiente =
-        new Date(inicio);
-
-    siguiente.setMinutes(
-        siguiente.getMinutes() +
-        siguienteIndice * intervalo
-    );
-
-    if (siguiente >= fin) {
-        return null;
-    }
-
-    return siguiente;
-}
-
-function iniciarMarketingScheduler() {
-    console.log(
-        "========================================"
-    );
-
-    console.log(
-        "[MARKETING] Scheduler agregado."
-    );
-
-    console.log(
-        "[MARKETING] Habilitado:",
-        MARKETING_ENABLED
-    );
-
-    console.log(
-        "[MARKETING] Plantilla:",
-        MARKETING_TEMPLATE_NAME
-    );
-
-    console.log(
-        "[MARKETING] Límite diario:",
-        MARKETING_DAILY_LIMIT
-    );
-
-    console.log(
-        "[MARKETING] Horario:",
-        `${MARKETING_START_HOUR}:00 - ${MARKETING_END_HOUR}:00`
-    );
-
-    console.log(
-        "[MARKETING] Intervalo aproximado:",
-        `${marketingMinutosEntreEnvios()} minutos`
-    );
-
-    console.log(
-        "========================================"
-    );
-
-    if (!MARKETING_ENABLED) {
-        return;
-    }
-
-    setInterval(
-        async () => {
-            try {
-                const ahora =
-                    new Date();
-
-                if (
-                    !marketingEsDiaLaboral(
-                        ahora
-                    )
-                ) {
-                    return;
-                }
-
-                if (
-                    !marketingDentroDeHorario(
-                        ahora
-                    )
-                ) {
-                    return;
-                }
-
-                const proxima =
-                    marketingObtenerSiguienteHorario(
-                        ahora
-                    );
-
-                if (!proxima) {
-                    return;
-                }
-
-                const diferencia =
-                    proxima.getTime() -
-                    Date.now();
-
-                if (
-                    diferencia >= 0 &&
-                    diferencia <=
-                    Math.max(
-                        65 * 1000,
-                        MARKETING_BATCH_INTERVAL_MS + 5000
-                    )
-                ) {
-                    await marketingEnviarUno();
-                }
-            } catch (error) {
-                console.error(
-                    "[MARKETING] Scheduler:",
-                    error
-                );
+        await marketingMarcarEnvio(
+            envio.id,
+            {
+                whatsapp_message_id:
+                    messageId,
+                estado:
+                    "enviado",
+                enviado_en:
+                    new Date()
+                        .toISOString(),
+                error: null
             }
-        },
-        Math.max(
-            10000,
-            MARKETING_BATCH_INTERVAL_MS
-        )
-    );
+        );
+
+        return {
+            envio_id: envio.id,
+            campana_id: idCampana,
+            marketing_contacto_id:
+                contacto.id,
+            telefono:
+                contacto.telefono,
+            whatsapp_message_id:
+                messageId,
+            estado:
+                "enviado",
+            ya_enviado:
+                false,
+            whatsapp:
+                resultado
+        };
+
+    } catch (errorEnvio) {
+
+        await marketingMarcarEnvio(
+            envio.id,
+            {
+                estado:
+                    "error",
+                enviado_en:
+                    null,
+                error:
+                    errorEnvio.message
+            }
+        );
+
+        throw errorEnvio;
+    }
 }
 
 async function marketingBuscarContactoPorTelefono(
@@ -4407,6 +4023,99 @@ const server =
                 }
 
                 // =========================================
+                // MARKETING - ENVIAR CONTACTO
+                // POST /marketing/send
+                //
+                // La aplicación controla cantidad, horario y
+                // frecuencia. Render solamente ejecuta el envío.
+                // =========================================
+
+                if (
+                    req.method === "POST" &&
+                    pathname === "/marketing/send"
+                ) {
+
+                    try {
+
+                        const data =
+                            await leerBody(
+                                req
+                            );
+
+                        const campanaId =
+                            Number(
+                                data.campana_id
+                            );
+
+                        const marketingContactoId =
+                            Number(
+                                data.marketing_contacto_id
+                            );
+
+                        if (
+                            !Number.isInteger(campanaId) ||
+                            campanaId <= 0 ||
+                            !Number.isInteger(marketingContactoId) ||
+                            marketingContactoId <= 0
+                        ) {
+
+                            responderJSON(
+                                res,
+                                400,
+                                {
+                                    success:
+                                        false,
+
+                                    error:
+                                        "Faltan 'campana_id' y/o 'marketing_contacto_id' válidos."
+                                }
+                            );
+
+                            return;
+                        }
+
+                        const resultado =
+                            await marketingEnviarContacto(
+                                campanaId,
+                                marketingContactoId
+                            );
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+
+                                marketing:
+                                    resultado
+                            }
+                        );
+
+                    } catch (error) {
+
+                        console.error(
+                            "Error enviando Marketing:",
+                            error
+                        );
+
+                        responderJSON(
+                            res,
+                            500,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
                 // ENVIAR MENSAJE
                 // POST /send-message
                 // =========================================
@@ -4661,24 +4370,3 @@ server.listen(
     }
 );
 
-// =====================================================
-// [AGREGADO] INICIAR MARKETING
-// =====================================================
-// Se ejecuta después de inicializar el servidor de Soporte.
-// No altera ninguna función existente de Soporte.
-
-(async () => {
-    try {
-        console.log(
-            "[MARKETING] Verificando tablas marketing_contactos y envios_marketing..."
-        );
-
-        await marketingImportarTXT();
-        iniciarMarketingScheduler();
-    } catch (error) {
-        console.error(
-            "[MARKETING] Error iniciando módulo:",
-            error
-        );
-    }
-})();
