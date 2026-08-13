@@ -1020,6 +1020,58 @@ function obtenerContenidoMensaje(
         return message.text.body;
     }
 
+    // =================================================
+    // BOTÓN DE WHATSAPP
+    // =================================================
+    // Guardamos el texto real del botón en lugar de
+    // guardar solamente "[Mensaje de tipo button]".
+    if (
+        message.type === "button" &&
+        message.button
+    ) {
+
+        return (
+            message.button.text ||
+            message.button.payload ||
+            "[Botón sin texto]"
+        );
+    }
+
+    // =================================================
+    // MENSAJE INTERACTIVO
+    // =================================================
+    if (
+        message.type === "interactive" &&
+        message.interactive
+    ) {
+
+        const interactive =
+            message.interactive;
+
+        if (
+            interactive.button_reply
+        ) {
+
+            return (
+                interactive.button_reply.title ||
+                interactive.button_reply.id ||
+                "[Botón interactivo sin texto]"
+            );
+        }
+
+        if (
+            interactive.list_reply
+        ) {
+
+            return (
+                interactive.list_reply.title ||
+                interactive.list_reply.description ||
+                interactive.list_reply.id ||
+                "[Opción interactiva sin texto]"
+            );
+        }
+    }
+
     if (multimedia) {
 
         return JSON.stringify(
