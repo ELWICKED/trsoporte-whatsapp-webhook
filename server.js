@@ -2771,6 +2771,418 @@ async function marketingBuscarContactoPorTelefono(
     return data;
 }
 
+
+// =====================================================
+// MARKETING - CAMPAÑA Y ENVÍO
+// =====================================================
+// IMPORTANTE:
+// Render NO controla límites, horarios ni scheduler.
+// La aplicación de Windows decide cuándo enviar.
+// Render solamente:
+//   1) resuelve el contacto;
+//   2) resuelve la campaña;
+//   3) envía la plantilla a Meta;
+//   4) registra el resultado en Supabase.
+// =====================================================
+
+async function marketingObtenerCampana() {
+    const nombreCampana =
+        process.env.MARKETING_CAMPAIGN_NAME ||
+        "TR Marketing WhatsApp";
+
+    const {
+        data,
+        error
+    } =
+        await supabase
+            .from("campanas")
+            .select("*")
+            .eq(
+                "nombre",
+                nombreCampana
+            )
+            .order(
+                "id",
+                {
+                    ascending: false
+                }
+            )
+            .limit(1)
+            .maybeSingle();
+
+    if (error) {
+        throw error;
+    }
+
+    if (data) {
+        return data;
+    }
+
+    const {
+        data: nueva,
+        error: errorNueva
+    } =
+        await supabase
+            .from("campanas")
+            .insert({
+                nombre:
+                    nombreCampana,
+                plantilla:
+                    MARKETING_TEMPLATE_NAME,
+                estado:
+                    "creada"
+            })
+            .select()
+            .single();
+
+    if (errorNueva) {
+        throw errorNueva;
+    }
+
+    return nueva;
+}
+
+async function marketingObtenerContactoPorId(
+    marketingContactoId
+) {
+    const id =
+        Number(
+            marketingContactoId
+        );
+
+    if (
+        !Number.isInteger(id) ||
+        id <= 0
+    ) {
+        throw new Error(
+            "marketing_contacto_id inválido."
+        );
+    }
+
+    const {
+        data,
+        error
+    } =
+        await supabase
+            .from("marketing_contactos")
+            .select(
+                "id, telefono, nombre, activo, baja_comunicaciones, bloqueado"
+            )
+            .eq(
+                "id",
+                id
+            )
+            .maybeSingle();
+
+    if (error) {
+        throw error;
+    }
+
+    if (!data) {
+        throw new Error(
+            "Contacto de Marketing no encontrado."
+        );
+    }
+
+    if (!data.activo) {
+        throw new Error(
+            "El contacto de Marketing está inactivo."
+        );
+    }
+
+    if (data.baja_comunicaciones) {
+        throw new Error(
+            "El contacto solicitó baja de comunicaciones."
+        );
+    }
+
+    if (data.bloqueado) {
+        throw new Error(
+            "El contacto de Marketing está bloqueado."
+        );
+    }
+
+    return data;
+}
+
+async function marketingCrearEnvioPendiente(
+    campanaId,
+    marketingContactoId
+) {
+    const {
+        data: existente,
+        error: errorBusqueda
+    } =
+        await supabase
+            .from("envios_marketing")
+            .select("*")
+            .eq(
+                "campana_id",
+                campanaId
+            )
+            .eq(
+                "marketing_contacto_id",
+                marketingContactoId
+            )
+            .maybeSingle();
+
+    if (errorBusqueda) {
+        throw errorBusqueda;
+    }
+
+    if (existente) {
+        return existente;
+    }
+
+    const {
+        data,
+        error
+    } =
+        await supabase
+            .from("envios_marketing")
+            .insert({
+                campana_id:
+                    campanaId,
+                marketing_contacto_id:
+                    marketingContactoId,
+                estado:
+                    "pendiente"
+            })
+            .select()
+            .single();
+
+    if (error) {
+        throw error;
+    }
+
+    return data;
+}
+
+async function enviarWhatsAppMarketing(
+    telefono
+) {
+    if (!MARKETING_ENABLED) {
+        throw new Error(
+            "Marketing está deshabilitado. Configure MARKETING_ENABLED=true."
+        );
+    }
+
+    if (!MARKETING_ACCESS_TOKEN) {
+        throw new Error(
+            "MARKETING_ACCESS_TOKEN no configurado."
+        );
+    }
+
+    if (!MARKETING_PHONE_NUMBER_ID) {
+        throw new Error(
+            "MARKETING_PHONE_NUMBER_ID no configurado."
+        );
+    }
+
+    const telefonoNormalizado =
+        marketingNormalizarTelefono(
+            telefono
+        );
+
+    if (
+        !telefonoNormalizado ||
+        telefonoNormalizado.length < 8
+    ) {
+        throw new Error(
+            "Número de teléfono de Marketing inválido."
+        );
+    }
+
+    const whatsappUrl =
+        `https://graph.facebook.com/${MARKETING_API_VERSION}/${MARKETING_PHONE_NUMBER_ID}/messages`;
+
+    const plantilla = {
+        messaging_product:
+            "whatsapp",
+
+        recipient_type:
+            "individual",
+
+        to:
+            telefonoNormalizado,
+
+        type:
+            "template",
+
+        template: {
+            name:
+                MARKETING_TEMPLATE_NAME,
+
+            language: {
+                code:
+                    MARKETING_TEMPLATE_LANGUAGE
+            }
+        }
+    };
+
+    console.log(
+        "[MARKETING] Enviando plantilla:",
+        MARKETING_TEMPLATE_NAME,
+        "a:",
+        telefonoNormalizado
+    );
+
+    const response =
+        await fetch(
+            whatsappUrl,
+            {
+                method:
+                    "POST",
+
+                headers: {
+                    "Authorization":
+                        `Bearer ${MARKETING_ACCESS_TOKEN}`,
+
+                    "Content-Type":
+                        "application/json"
+                },
+
+                body:
+                    JSON.stringify(
+                        plantilla
+                    )
+            }
+        );
+
+    const resultado =
+        await response.json();
+
+    if (!response.ok) {
+        console.error(
+            "[MARKETING] Error de Meta:",
+            resultado
+        );
+
+        throw new Error(
+            resultado?.error?.message ||
+            "Meta rechazó la plantilla de Marketing."
+        );
+    }
+
+    return resultado;
+}
+
+async function marketingEnviarContacto(
+    campanaId,
+    marketingContactoId
+) {
+    const idCampana =
+        Number(
+            campanaId
+        );
+
+    if (
+        !Number.isInteger(idCampana) ||
+        idCampana <= 0
+    ) {
+        throw new Error(
+            "campana_id inválido."
+        );
+    }
+
+    const contacto =
+        await marketingObtenerContactoPorId(
+            marketingContactoId
+        );
+
+    const envio =
+        await marketingCrearEnvioPendiente(
+            idCampana,
+            contacto.id
+        );
+
+    if (
+        envio.estado === "enviado"
+    ) {
+        return {
+            envio:
+                envio,
+
+            contacto:
+                contacto,
+
+            ya_enviado:
+                true
+        };
+    }
+
+    try {
+        const resultado =
+            await enviarWhatsAppMarketing(
+                contacto.telefono
+            );
+
+        const messageId =
+            resultado
+                ?.messages?.[0]?.id ||
+            null;
+
+        await marketingMarcarEnvio(
+            envio.id,
+            {
+                whatsapp_message_id:
+                    messageId,
+
+                estado:
+                    "enviado",
+
+                enviado_en:
+                    new Date()
+                        .toISOString(),
+
+                error:
+                    null
+            }
+        );
+
+        return {
+            envio_id:
+                envio.id,
+
+            campana_id:
+                idCampana,
+
+            marketing_contacto_id:
+                contacto.id,
+
+            telefono:
+                contacto.telefono,
+
+            whatsapp_message_id:
+                messageId,
+
+            estado:
+                "enviado",
+
+            ya_enviado:
+                false,
+
+            whatsapp:
+                resultado
+        };
+    }
+    catch (errorEnvio) {
+
+        await marketingMarcarEnvio(
+            envio.id,
+            {
+                estado:
+                    "error",
+
+                error:
+                    errorEnvio.message
+            }
+        );
+
+        throw errorEnvio;
+    }
+}
+
 async function marketingRegistrarEventoWebhook(
     message,
     value
@@ -3710,6 +4122,142 @@ const server =
                         );
 
                     } catch (error) {
+
+                        responderJSON(
+                            res,
+                            500,
+                            {
+                                success:
+                                    false,
+
+                                error:
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
+                // MARKETING - ENVIAR CONTACTO
+                // POST /marketing/send
+                //
+                // Form1 envía solamente:
+                // { "telefono": "569XXXXXXXX" }
+                //
+                // Render NO controla cantidad, horario ni
+                // frecuencia. Solo ejecuta el envío y registra
+                // el resultado en Supabase.
+                // =========================================
+
+                if (
+                    req.method === "POST" &&
+                    pathname === "/marketing/send"
+                ) {
+
+                    try {
+
+                        const data =
+                            await leerBody(
+                                req
+                            );
+
+                        const telefono =
+                            marketingNormalizarTelefono(
+                                data.telefono ||
+                                data.to
+                            );
+
+                        if (
+                            !telefono ||
+                            telefono.length < 8
+                        ) {
+
+                            responderJSON(
+                                res,
+                                400,
+                                {
+                                    success:
+                                        false,
+
+                                    error:
+                                        "Debe indicar un número de teléfono válido en el campo 'telefono'."
+                                }
+                            );
+
+                            return;
+                        }
+
+                        let contacto =
+                            await marketingBuscarContactoPorTelefono(
+                                telefono
+                            );
+
+                        if (!contacto) {
+
+                            const resultadoInsert =
+                                await supabase
+                                    .from(
+                                        "marketing_contactos"
+                                    )
+                                    .insert({
+                                        telefono:
+                                            telefono,
+
+                                        nombre:
+                                            telefono,
+
+                                        activo:
+                                            true,
+
+                                        baja_comunicaciones:
+                                            false,
+
+                                        bloqueado:
+                                            false
+                                    })
+                                    .select("*")
+                                    .single();
+
+                            if (
+                                resultadoInsert.error
+                            ) {
+                                throw resultadoInsert.error;
+                            }
+
+                            contacto =
+                                resultadoInsert.data;
+                        }
+
+                        const campana =
+                            await marketingObtenerCampana();
+
+                        const resultado =
+                            await marketingEnviarContacto(
+                                campana.id,
+                                contacto.id
+                            );
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+
+                                marketing:
+                                    resultado
+                            }
+                        );
+
+                    }
+                    catch (error) {
+
+                        console.error(
+                            "[MARKETING] Error enviando contacto:",
+                            error
+                        );
 
                         responderJSON(
                             res,
