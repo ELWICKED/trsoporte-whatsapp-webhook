@@ -406,183 +406,6 @@ async function enviarWhatsApp(
 }
 
 // =====================================================
-// MARKETING - ENVIAR MENSAJE DE TEXTO
-// =====================================================
-// Usa exclusivamente el número de WhatsApp de Marketing.
-// No modifica el envío de plantillas/campañas.
-// =====================================================
-
-async function enviarWhatsAppMarketingTexto(
-    telefono,
-    mensaje
-) {
-
-    if (!MARKETING_ENABLED) {
-
-        throw new Error(
-            "Marketing está deshabilitado. Configure MARKETING_ENABLED=true."
-        );
-    }
-
-    if (!MARKETING_ACCESS_TOKEN) {
-
-        throw new Error(
-            "MARKETING_ACCESS_TOKEN no configurado."
-        );
-    }
-
-    if (!MARKETING_PHONE_NUMBER_ID) {
-
-        throw new Error(
-            "MARKETING_PHONE_NUMBER_ID no configurado."
-        );
-    }
-
-    const telefonoNormalizado =
-        marketingNormalizarTelefono(
-            telefono
-        );
-
-    if (
-        !telefonoNormalizado ||
-        telefonoNormalizado.length < 8
-    ) {
-
-        throw new Error(
-            "Número de teléfono de Marketing inválido."
-        );
-    }
-
-    const whatsappUrl =
-        `https://graph.facebook.com/${MARKETING_API_VERSION}/${MARKETING_PHONE_NUMBER_ID}/messages`;
-
-    const response =
-        await fetch(
-            whatsappUrl,
-            {
-                method: "POST",
-
-                headers: {
-                    "Authorization":
-                        `Bearer ${MARKETING_ACCESS_TOKEN}`,
-
-                    "Content-Type":
-                        "application/json"
-                },
-
-                body:
-                    JSON.stringify({
-
-                        messaging_product:
-                            "whatsapp",
-
-                        recipient_type:
-                            "individual",
-
-                        to:
-                            telefonoNormalizado,
-
-                        type:
-                            "text",
-
-                        text: {
-
-                            preview_url:
-                                false,
-
-                            body:
-                                mensaje
-                        }
-                    })
-            }
-        );
-
-    const result =
-        await response.json();
-
-    console.log(
-        "[MARKETING] Respuesta de Meta:",
-        JSON.stringify(
-            result
-        )
-    );
-
-    if (!response.ok) {
-
-        throw new Error(
-            result?.error?.message ||
-            "Meta rechazó el mensaje de Marketing."
-        );
-    }
-
-    return result;
-}
-
-// =====================================================
-// WHATSAPP - ENVIAR SEGÚN EL NÚMERO DE ORIGEN
-// =====================================================
-// La conversación guarda whatsapp_phone_number_id.
-// Esto evita usar la categoría del ticket para decidir
-// desde qué WhatsApp sale la respuesta.
-//
-// SOPORTE  -> META_PHONE_NUMBER_ID
-// MARKETING -> MARKETING_PHONE_NUMBER_ID
-//
-// Si un ticket viejo no tiene el ID guardado, se mantiene
-// el comportamiento seguro anterior: sale por Soporte.
-// =====================================================
-
-async function enviarWhatsAppDesdeConversacion(
-    conversacion,
-    telefono,
-    mensaje
-) {
-
-    const phoneNumberId =
-        String(
-            conversacion?.whatsapp_phone_number_id ||
-            ""
-        );
-
-    if (
-        phoneNumberId &&
-        MARKETING_PHONE_NUMBER_ID &&
-        phoneNumberId === String(MARKETING_PHONE_NUMBER_ID)
-    ) {
-
-        console.log(
-            `[WHATSAPP] Enviando por MARKETING. Phone Number ID: ${phoneNumberId}`
-        );
-
-        return await enviarWhatsAppMarketingTexto(
-            telefono,
-            mensaje
-        );
-    }
-
-    if (
-        phoneNumberId &&
-        PHONE_NUMBER_ID &&
-        phoneNumberId !== String(PHONE_NUMBER_ID)
-    ) {
-
-        console.warn(
-            `[WHATSAPP] Phone Number ID desconocido (${phoneNumberId}). Se usará Soporte por seguridad.`
-        );
-    } else {
-
-        console.log(
-            `[WHATSAPP] Enviando por SOPORTE. Phone Number ID: ${PHONE_NUMBER_ID || "no configurado"}`
-        );
-    }
-
-    return await enviarWhatsApp(
-        telefono,
-        mensaje
-    );
-}
-
-// =====================================================
 // GUARDAR MENSAJE SALIENTE
 // =====================================================
 
@@ -1197,58 +1020,6 @@ function obtenerContenidoMensaje(
         return message.text.body;
     }
 
-    // =================================================
-    // BOTÓN DE WHATSAPP
-    // =================================================
-    // Guardamos el texto real del botón en lugar de
-    // guardar solamente "[Mensaje de tipo button]".
-    if (
-        message.type === "button" &&
-        message.button
-    ) {
-
-        return (
-            message.button.text ||
-            message.button.payload ||
-            "[Botón sin texto]"
-        );
-    }
-
-    // =================================================
-    // MENSAJE INTERACTIVO
-    // =================================================
-    if (
-        message.type === "interactive" &&
-        message.interactive
-    ) {
-
-        const interactive =
-            message.interactive;
-
-        if (
-            interactive.button_reply
-        ) {
-
-            return (
-                interactive.button_reply.title ||
-                interactive.button_reply.id ||
-                "[Botón interactivo sin texto]"
-            );
-        }
-
-        if (
-            interactive.list_reply
-        ) {
-
-            return (
-                interactive.list_reply.title ||
-                interactive.list_reply.description ||
-                interactive.list_reply.id ||
-                "[Opción interactiva sin texto]"
-            );
-        }
-    }
-
     if (multimedia) {
 
         return JSON.stringify(
@@ -1396,8 +1167,7 @@ async function obtenerConversacionAbierta(
 // =====================================================
 
 async function crearConversacion(
-    clienteId,
-    whatsappPhoneNumberId
+    clienteId
 ) {
 
     const {
@@ -1416,10 +1186,6 @@ async function crearConversacion(
 
                 prioridad:
                     "normal",
-
-                whatsapp_phone_number_id:
-                    whatsappPhoneNumberId ||
-                    PHONE_NUMBER_ID,
 
                 ultima_interaccion:
                     new Date()
@@ -1507,14 +1273,6 @@ async function procesarMensajeEntrante(
     const whatsappMessageId =
         message.id ||
         null;
-
-    // Meta indica exactamente a qué número de WhatsApp llegó el mensaje.
-    const whatsappPhoneNumberId =
-        String(
-            value?.metadata?.phone_number_id ||
-            PHONE_NUMBER_ID ||
-            ""
-        );
 
     const tipo =
         message.type ||
@@ -1713,8 +1471,7 @@ async function procesarMensajeEntrante(
                 `⭐ Gracias por calificar la atención del ticket #${ultimaConversacion.numero_ticket}.\n\nTu valoración fue registrada correctamente.\n\n¡Gracias por confiar en TR Soporte!`;
 
             const resultado =
-                await enviarWhatsAppDesdeConversacion(
-                    ultimaConversacion,
+                await enviarWhatsApp(
                     telefono,
                     gracias
                 );
@@ -1752,8 +1509,7 @@ async function procesarMensajeEntrante(
 
         conversacion =
             await crearConversacion(
-                cliente.id,
-                whatsappPhoneNumberId
+                cliente.id
             );
 
         ticketCreado =
@@ -2009,8 +1765,7 @@ async function procesarMensajeEntrante(
         );
 
         const resultado =
-            await enviarWhatsAppDesdeConversacion(
-                conversacion,
+            await enviarWhatsApp(
                 telefono,
                 respuestaAutomatica
             );
@@ -2698,8 +2453,7 @@ async function cerrarTicket(
             `📋 Tu ticket #${ticket.numero_ticket} fue cerrado correctamente.\n\nEsperamos haber podido ayudarte.\n\n⭐ ¿Cómo calificarías la atención recibida?\n\nRespondé con un número del 1 al 5:\n\n1️⃣ Muy mala\n2️⃣ Mala\n3️⃣ Regular\n4️⃣ Buena\n5️⃣ Excelente`;
 
         const resultado =
-            await enviarWhatsAppDesdeConversacion(
-                ticket,
+            await enviarWhatsApp(
                 cliente.telefono,
                 mensajeCierre
             );
@@ -2980,138 +2734,6 @@ function marketingNormalizarTelefono(telefono) {
         .replace(/^00/, "");
 }
 
-// =====================================================
-// MARKETING - ENVIAR PLANTILLA WHATSAPP
-// =====================================================
-// Envía UNA sola plantilla aprobada por Meta.
-// Este servidor NO controla horarios, límites ni campañas.
-// La aplicación de Windows decide cuándo y a quién enviar.
-// =====================================================
-
-async function enviarWhatsAppMarketing(
-    telefono
-) {
-
-    if (!MARKETING_ENABLED) {
-
-        throw new Error(
-            "Marketing está deshabilitado. Configure MARKETING_ENABLED=true."
-        );
-    }
-
-    if (!MARKETING_ACCESS_TOKEN) {
-
-        throw new Error(
-            "MARKETING_ACCESS_TOKEN no configurado."
-        );
-    }
-
-    if (!MARKETING_PHONE_NUMBER_ID) {
-
-        throw new Error(
-            "MARKETING_PHONE_NUMBER_ID no configurado."
-        );
-    }
-
-    const telefonoNormalizado =
-        marketingNormalizarTelefono(
-            telefono
-        );
-
-    if (
-        !telefonoNormalizado ||
-        telefonoNormalizado.length < 8
-    ) {
-
-        throw new Error(
-            "Número de teléfono de Marketing inválido."
-        );
-    }
-
-    const whatsappUrl =
-        `https://graph.facebook.com/${MARKETING_API_VERSION}/${MARKETING_PHONE_NUMBER_ID}/messages`;
-
-    const payload = {
-
-        messaging_product:
-            "whatsapp",
-
-        recipient_type:
-            "individual",
-
-        to:
-            telefonoNormalizado,
-
-        type:
-            "template",
-
-        template: {
-
-            name:
-                MARKETING_TEMPLATE_NAME,
-
-            language: {
-
-                code:
-                    MARKETING_TEMPLATE_LANGUAGE
-            }
-        }
-    };
-
-    console.log(
-        "[MARKETING] Enviando plantilla:",
-        MARKETING_TEMPLATE_NAME,
-        "a:",
-        telefonoNormalizado
-    );
-
-    const response =
-        await fetch(
-            whatsappUrl,
-            {
-                method: "POST",
-
-                headers: {
-                    "Authorization":
-                        `Bearer ${MARKETING_ACCESS_TOKEN}`,
-
-                    "Content-Type":
-                        "application/json"
-                },
-
-                body:
-                    JSON.stringify(
-                        payload
-                    )
-            }
-        );
-
-    const resultado =
-        await response.json();
-
-    if (!response.ok) {
-
-        console.error(
-            "[MARKETING] Error de Meta:",
-            resultado
-        );
-
-        throw new Error(
-            resultado?.error?.message ||
-            JSON.stringify(
-                resultado
-            )
-        );
-    }
-
-    console.log(
-        "[MARKETING] Mensaje enviado correctamente:",
-        resultado
-    );
-
-    return resultado;
-}
-
 async function marketingMarcarEnvio(
     envioId,
     datos
@@ -3149,52 +2771,6 @@ async function marketingBuscarContactoPorTelefono(
     return data;
 }
 
-async function obtenerConversacionMarketingAbierta(
-    clienteId
-) {
-    const { data, error } =
-        await supabase
-            .from("conversaciones")
-            .select("*")
-            .eq("cliente_id", clienteId)
-            .eq("estado", "abierta")
-            .eq("categoria", "Marketing")
-            .order("ultima_interaccion", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-    if (error) {
-        throw error;
-    }
-
-    return data;
-}
-
-async function crearConversacionMarketing(
-    clienteId
-) {
-    const { data, error } =
-        await supabase
-            .from("conversaciones")
-            .insert({
-                cliente_id: clienteId,
-                estado: "abierta",
-                prioridad: "normal",
-                categoria: "Marketing",
-                whatsapp_phone_number_id:
-                    MARKETING_PHONE_NUMBER_ID,
-                ultima_interaccion: new Date().toISOString()
-            })
-            .select()
-            .single();
-
-    if (error) {
-        throw error;
-    }
-
-    return data;
-}
-
 async function marketingRegistrarEventoWebhook(
     message,
     value
@@ -3208,24 +2784,12 @@ async function marketingRegistrarEventoWebhook(
         return false;
     }
 
-    // =================================================
-    // IDENTIFICACIÓN REAL DEL NÚMERO DE MARKETING
-    // =================================================
-    // No dependemos de que el cliente exista en
-    // marketing_contactos. Meta ya nos indica mediante
-    // metadata.phone_number_id a qué WhatsApp llegó el
-    // mensaje. Si llegó al número de Marketing, debe
-    // entrar al circuito Marketing.
-    const phoneNumberId =
-        String(
-            value?.metadata?.phone_number_id ||
-            ""
+    const contacto =
+        await marketingBuscarContactoPorTelefono(
+            from
         );
 
-    if (
-        !MARKETING_PHONE_NUMBER_ID ||
-        phoneNumberId !== String(MARKETING_PHONE_NUMBER_ID)
-    ) {
+    if (!contacto) {
         return false;
     }
 
@@ -3235,47 +2799,12 @@ async function marketingRegistrarEventoWebhook(
     const tipo =
         message?.type || "unknown";
 
-    const nombre =
-        value?.contacts?.[0]?.profile?.name ||
-        from;
-
     console.log(
-        `[MARKETING] Mensaje entrante de ${from}. Tipo: ${tipo}. Phone Number ID: ${phoneNumberId}`
+        `[MARKETING] Respuesta/evento recibido de ${from}. Tipo: ${tipo}`
     );
 
-    // =================================================
-    // EVITAR DUPLICADOS DE WEBHOOK
-    // =================================================
     if (messageId) {
-        const { data: mensajeExistente, error: errorDuplicado } =
-            await supabase
-                .from("mensajes")
-                .select("id")
-                .eq("whatsapp_message_id", messageId)
-                .maybeSingle();
-
-        if (errorDuplicado) {
-            throw errorDuplicado;
-        }
-
-        if (mensajeExistente) {
-            console.log(
-                `[MARKETING] Mensaje duplicado ignorado: ${messageId}`
-            );
-            return true;
-        }
-    }
-
-    // =================================================
-    // MARCAR RESPUESTA DE CAMPAÑA, SI EXISTE CONTACTO
-    // =================================================
-    const contacto =
-        await marketingBuscarContactoPorTelefono(
-            from
-        );
-
-    if (contacto && messageId) {
-        const { data: envio, error: errorEnvio } =
+        const { data: envio } =
             await supabase
                 .from("envios_marketing")
                 .select("*")
@@ -3290,124 +2819,21 @@ async function marketingRegistrarEventoWebhook(
                 .limit(1)
                 .maybeSingle();
 
-        if (errorEnvio) {
-            throw errorEnvio;
-        }
-
         if (envio) {
             await marketingMarcarEnvio(
                 envio.id,
                 {
                     respondido_en:
                         envio.respondido_en ||
-                        new Date().toISOString()
+                        new Date()
+                            .toISOString()
                 }
             );
         }
     }
 
-    // =================================================
-    // BUSCAR / CREAR CLIENTE
-    // =================================================
-    const cliente =
-        await obtenerCliente(
-            from,
-            nombre
-        );
-
-    // =================================================
-    // BUSCAR / CREAR CONVERSACIÓN MARKETING
-    // =================================================
-    let conversacion =
-        await obtenerConversacionMarketingAbierta(
-            cliente.id
-        );
-
-    let ticketCreado = false;
-
-    if (!conversacion) {
-        conversacion =
-            await crearConversacionMarketing(
-                cliente.id
-            );
-
-        ticketCreado = true;
-
-        console.log(
-            `[MARKETING] Nueva conversación creada. Ticket #${conversacion.numero_ticket}`
-        );
-    }
-
-    // =================================================
-    // OBTENER CONTENIDO REAL
-    // =================================================
-    const contenido =
-        obtenerContenidoMensaje(
-            message,
-            null
-        );
-
-    // =================================================
-    // GUARDAR MENSAJE
-    // =================================================
-    const { error: errorMensaje } =
-        await supabase
-            .from("mensajes")
-            .insert({
-                cliente_id: cliente.id,
-                conversacion_id: conversacion.id,
-                whatsapp_message_id: messageId,
-                direccion: "entrante",
-                tipo,
-                contenido,
-                estado: "recibido"
-            });
-
-    if (errorMensaje) {
-        throw errorMensaje;
-    }
-
-    // =================================================
-    // ACTUALIZAR CLIENTE Y CONVERSACIÓN
-    // =================================================
-    const ahora = new Date().toISOString();
-
-    await supabase
-        .from("clientes")
-        .update({
-            ultima_interaccion: ahora
-        })
-        .eq("id", cliente.id);
-
-    await supabase
-        .from("conversaciones")
-        .update({
-            ultima_interaccion: ahora
-        })
-        .eq("id", conversacion.id);
-
-    // =================================================
-    // HISTORIAL
-    // =================================================
-    await registrarHistorial(
-        conversacion.id,
-        conversacion.agente_id || null,
-        ticketCreado
-            ? "ticket_creado"
-            : "mensaje_recibido",
-        ticketCreado
-            ? "Ticket de Marketing creado automáticamente desde WhatsApp."
-            : "El cliente envió un nuevo mensaje por WhatsApp Marketing."
-    );
-
-    console.log(
-        `[MARKETING] Mensaje guardado correctamente. Cliente: ${cliente.id}. Conversación: ${conversacion.id}. Tipo: ${tipo}. Contenido: ${contenido}`
-    );
-
-    // Importante: devolvemos true para que el flujo de
-    // Soporte NO procese nuevamente este mismo mensaje.
-    // Marketing NO responde automáticamente. El agente
-    // lo responderá desde el panel.
+    // Guardamos la marca de respuesta en el contacto/campaña,
+    // pero NO creamos tickets de Soporte desde este flujo.
     return true;
 }
 
@@ -4457,16 +3883,19 @@ const server =
                             return;
                         }
 
-                        // Recuperamos la conversación ANTES de enviar
-                        // para determinar desde qué número debe salir.
-                        let conversacion = null;
+                        const resultado =
+                            await enviarWhatsApp(
+                                telefono,
+                                mensaje
+                            );
 
                         if (
                             conversacionId
                         ) {
 
                             const {
-                                data,
+                                data:
+                                    conversacion,
                                 error
                             } =
                                 await supabase
@@ -4483,36 +3912,6 @@ const server =
                             if (error) {
                                 throw error;
                             }
-
-                            conversacion = data;
-
-                            console.log(
-                                `[WHATSAPP] Conversación ${conversacion.id} -> phone_number_id: ${conversacion.whatsapp_phone_number_id || "NULL"}`
-                            );
-                        }
-
-                        // IMPORTANTE:
-                        // El número de salida NO se decide por categoría.
-                        // Se decide por whatsapp_phone_number_id, que es el
-                        // número real que originó la conversación.
-                        //
-                        // Esto evita que un ticket de Soporte marcado como
-                        // "Marketing" salga accidentalmente por Marketing.
-                        const resultado =
-                            conversacion
-                                ? await enviarWhatsAppDesdeConversacion(
-                                    conversacion,
-                                    telefono,
-                                    mensaje
-                                )
-                                : await enviarWhatsApp(
-                                    telefono,
-                                    mensaje
-                                );
-
-                        if (
-                            conversacion
-                        ) {
 
                             await guardarMensajeSaliente(
                                 conversacion,
