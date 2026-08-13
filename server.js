@@ -2734,6 +2734,138 @@ function marketingNormalizarTelefono(telefono) {
         .replace(/^00/, "");
 }
 
+// =====================================================
+// MARKETING - ENVIAR PLANTILLA WHATSAPP
+// =====================================================
+// Envía UNA sola plantilla aprobada por Meta.
+// Este servidor NO controla horarios, límites ni campañas.
+// La aplicación de Windows decide cuándo y a quién enviar.
+// =====================================================
+
+async function enviarWhatsAppMarketing(
+    telefono
+) {
+
+    if (!MARKETING_ENABLED) {
+
+        throw new Error(
+            "Marketing está deshabilitado. Configure MARKETING_ENABLED=true."
+        );
+    }
+
+    if (!MARKETING_ACCESS_TOKEN) {
+
+        throw new Error(
+            "MARKETING_ACCESS_TOKEN no configurado."
+        );
+    }
+
+    if (!MARKETING_PHONE_NUMBER_ID) {
+
+        throw new Error(
+            "MARKETING_PHONE_NUMBER_ID no configurado."
+        );
+    }
+
+    const telefonoNormalizado =
+        marketingNormalizarTelefono(
+            telefono
+        );
+
+    if (
+        !telefonoNormalizado ||
+        telefonoNormalizado.length < 8
+    ) {
+
+        throw new Error(
+            "Número de teléfono de Marketing inválido."
+        );
+    }
+
+    const whatsappUrl =
+        `https://graph.facebook.com/${MARKETING_API_VERSION}/${MARKETING_PHONE_NUMBER_ID}/messages`;
+
+    const payload = {
+
+        messaging_product:
+            "whatsapp",
+
+        recipient_type:
+            "individual",
+
+        to:
+            telefonoNormalizado,
+
+        type:
+            "template",
+
+        template: {
+
+            name:
+                MARKETING_TEMPLATE_NAME,
+
+            language: {
+
+                code:
+                    MARKETING_TEMPLATE_LANGUAGE
+            }
+        }
+    };
+
+    console.log(
+        "[MARKETING] Enviando plantilla:",
+        MARKETING_TEMPLATE_NAME,
+        "a:",
+        telefonoNormalizado
+    );
+
+    const response =
+        await fetch(
+            whatsappUrl,
+            {
+                method: "POST",
+
+                headers: {
+                    "Authorization":
+                        `Bearer ${MARKETING_ACCESS_TOKEN}`,
+
+                    "Content-Type":
+                        "application/json"
+                },
+
+                body:
+                    JSON.stringify(
+                        payload
+                    )
+            }
+        );
+
+    const resultado =
+        await response.json();
+
+    if (!response.ok) {
+
+        console.error(
+            "[MARKETING] Error de Meta:",
+            resultado
+        );
+
+        throw new Error(
+            resultado?.error?.message ||
+            JSON.stringify(
+                resultado
+            )
+        );
+    }
+
+    console.log(
+        "[MARKETING] Mensaje enviado correctamente:",
+        resultado
+    );
+
+    return resultado;
+}
+
 async function marketingMarcarEnvio(
     envioId,
     datos
