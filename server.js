@@ -2565,13 +2565,28 @@ async function manejarWebhook(
 
                     try {
 
+                        const phoneNumberId =
+                            String(
+                                value?.metadata?.phone_number_id ||
+                                ""
+                            ).trim();
+
                         const esMarketing =
+                            esWebhookMarketing(value);
+
+                        console.log(
+                            "[WEBHOOK] PHONE_NUMBER_ID de origen:",
+                            phoneNumberId || "(no informado)",
+                            "| Marketing:",
+                            esMarketing
+                        );
+
+                        if (esMarketing) {
                             await marketingRegistrarEventoWebhook(
                                 message,
                                 value
                             );
 
-                        if (esMarketing) {
                             console.log(
                                 "Mensaje de Marketing procesado sin crear ticket:",
                                 message.id
@@ -3183,27 +3198,59 @@ async function marketingEnviarContacto(
     }
 }
 
+function esWebhookMarketing(value) {
+    const phoneNumberId =
+        String(
+            value?.metadata?.phone_number_id ||
+            ""
+        ).trim();
+
+    const marketingPhoneNumberId =
+        String(
+            MARKETING_PHONE_NUMBER_ID ||
+            ""
+        ).trim();
+
+    return Boolean(
+        marketingPhoneNumberId &&
+        phoneNumberId &&
+        phoneNumberId === marketingPhoneNumberId
+    );
+}
+
 async function marketingRegistrarEventoWebhook(
     message,
     value
 ) {
+    /*
+     * IMPORTANTE:
+     * Marketing se identifica por el PHONE_NUMBER_ID de origen del webhook.
+     *
+     * NO se debe decidir si un mensaje es Marketing mirando solamente
+     * marketing_contactos, porque un mismo cliente puede existir también
+     * en la base de Soporte. Si el mensaje llegó al número de Marketing,
+     * pertenece al flujo Marketing y jamás debe pasar a Soporte.
+     */
+    if (!esWebhookMarketing(value)) {
+        return false;
+    }
+
     const from =
         marketingNormalizarTelefono(
             message?.from
         );
 
     if (!from) {
-        return false;
+        console.log(
+            "[MARKETING] Mensaje recibido sin teléfono de origen."
+        );
+        return true;
     }
 
     const contacto =
         await marketingBuscarContactoPorTelefono(
             from
         );
-
-    if (!contacto) {
-        return false;
-    }
 
     const messageId =
         message?.id || null;
@@ -3214,6 +3261,14 @@ async function marketingRegistrarEventoWebhook(
     console.log(
         `[MARKETING] Respuesta/evento recibido de ${from}. Tipo: ${tipo}`
     );
+
+    if (!contacto) {
+        console.log(
+            `[MARKETING] El número ${from} no está en marketing_contactos. ` +
+            "Se consume igualmente como Marketing para evitar crear un ticket de Soporte."
+        );
+        return true;
+    }
 
     if (messageId) {
         const { data: envio } =
@@ -3354,6 +3409,15 @@ const server =
                 // =========================================
                 // WEBHOOK POST
                 // =========================================
+                // La separación Marketing/Soporte se determina por
+                // value.metadata.phone_number_id.
+                // Nunca por el teléfono del cliente.
+                //
+                // Marketing -> MARKETING_PHONE_NUMBER_ID
+                // Soporte  -> PHONE_NUMBER_ID
+                //
+                // Esto evita que un contacto que exista en ambas bases
+                // sea desviado accidentalmente al flujo equivocado.
 
                 if (
                     req.method === "POST" &&
@@ -4431,11 +4495,95 @@ const server =
                             return;
                         }
 
-                        const resultado =
-                            await enviarWhatsApp(
-                                telefono,
-                                mensaje
-                            );
+                        const canal =
+                            String(
+                                data.canal ||
+                                "soporte"
+                            ).trim().toLowerCase();
+
+                        let resultado;
+
+                        if (canal === "marketing") {
+                            /*
+                             * Las respuestas de Marketing deben salir por
+                             * el número de Marketing, nunca por Soporte.
+                             * Se envían como texto únicamente si Meta permite
+                             * la conversación iniciada por el cliente.
+                             */
+                            if (!MARKETING_ENABLED) {
+                                throw new Error(
+                                    "Marketing está deshabilitado."
+                                );
+                            }
+
+                            if (!MARKETING_ACCESS_TOKEN) {
+                                throw new Error(
+                                    "MARKETING_ACCESS_TOKEN no configurado."
+                                );
+                            }
+
+                            if (!MARKETING_PHONE_NUMBER_ID) {
+                                throw new Error(
+                                    "MARKETING_PHONE_NUMBER_ID no configurado."
+                                );
+                            }
+
+                            const telefonoMarketing =
+                                marketingNormalizarTelefono(
+                                    telefono
+                                );
+
+                            const whatsappUrlMarketing =
+                                `https://graph.facebook.com/${MARKETING_API_VERSION}/${MARKETING_PHONE_NUMBER_ID}/messages`;
+
+                            const responseMarketing =
+                                await fetch(
+                                    whatsappUrlMarketing,
+                                    {
+                                        method:
+                                            "POST",
+                                        headers: {
+                                            "Authorization":
+                                                `Bearer ${MARKETING_ACCESS_TOKEN}`,
+                                            "Content-Type":
+                                                "application/json"
+                                        },
+                                        body:
+                                            JSON.stringify({
+                                                messaging_product:
+                                                    "whatsapp",
+                                                recipient_type:
+                                                    "individual",
+                                                to:
+                                                    telefonoMarketing,
+                                                type:
+                                                    "text",
+                                                text: {
+                                                    preview_url:
+                                                        false,
+                                                    body:
+                                                        mensaje
+                                                }
+                                            })
+                                    }
+                                );
+
+                            resultado =
+                                await responseMarketing.json();
+
+                            if (!responseMarketing.ok) {
+                                throw new Error(
+                                    resultado?.error?.message ||
+                                    "Meta rechazó el mensaje de Marketing."
+                                );
+                            }
+                        } else {
+                            resultado =
+                                await enviarWhatsApp(
+                                    telefono,
+                                    mensaje
+                                );
+                        }
 
                         if (
                             conversacionId
@@ -4607,9 +4755,16 @@ server.listen(
         );
 
         console.log(
-            "WhatsApp Phone Number ID:",
+            "WhatsApp Phone Number ID (Soporte):",
             PHONE_NUMBER_ID
-                ? "CONFIGURADO"
+                ? PHONE_NUMBER_ID
+                : "NO CONFIGURADO"
+        );
+
+        console.log(
+            "WhatsApp Phone Number ID (Marketing):",
+            MARKETING_PHONE_NUMBER_ID
+                ? MARKETING_PHONE_NUMBER_ID
                 : "NO CONFIGURADO"
         );
 
