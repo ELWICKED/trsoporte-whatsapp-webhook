@@ -2594,15 +2594,22 @@ async function manejarWebhook(
                         );
 
                         if (esMarketing) {
-                            await marketingRegistrarEventoWebhook(
-                                message,
-                                value
-                            );
+                            const resultadoMarketing =
+                                await marketingRegistrarEventoWebhook(
+                                    message,
+                                    value
+                                );
 
-                            console.log(
-                                "Mensaje de Marketing procesado como conversación/ticket:",
-                                message.id
-                            );
+                            if (resultadoMarketing === "baja") {
+                                console.log(
+                                    `[MARKETING] Baja de comunicaciones procesada correctamente: ${message.id}`
+                                );
+                            } else {
+                                console.log(
+                                    `[MARKETING] Mensaje procesado correctamente: ${message.id}`
+                                );
+                            }
+
                             continue;
                         }
 
@@ -3557,17 +3564,35 @@ async function marketingRegistrarEventoWebhook(
         message?.type ||
         "unknown";
 
+    const boton =
+        marketingNormalizarBoton(message);
+
+    // Para botones guardamos el texto real del botón
+    // en lugar de mostrar "[Mensaje de tipo button]".
     const contenido =
         message?.type === "text" &&
         message?.text
             ? String(
                 message.text.body
             )
-            : `[Mensaje de tipo ${tipo}]`;
+            : message?.type === "button" &&
+              boton.titulo
+                ? String(
+                    message?.button?.text ||
+                    message?.button?.payload ||
+                    boton.titulo
+                )
+                : `[Mensaje de tipo ${tipo}]`;
 
-    console.log(
-        `[MARKETING] Mensaje entrante de ${from}. Tipo: ${tipo}`
-    );
+    if (tipo === "button") {
+        console.log(
+            `[MARKETING] Botón recibido de ${from}: "${contenido}"`
+        );
+    } else {
+        console.log(
+            `[MARKETING] Mensaje entrante de ${from}. Tipo: ${tipo}`
+        );
+    }
 
     // -------------------------------------------------
     // BAJA DE MARKETING
@@ -3580,7 +3605,7 @@ async function marketingRegistrarEventoWebhook(
             nombre
         );
 
-        return true;
+        return "baja";
     }
 
     /*
@@ -3783,7 +3808,7 @@ async function marketingRegistrarEventoWebhook(
         );
     }
 
-    return true;
+    return "mensaje";
 }
 
 
