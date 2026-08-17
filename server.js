@@ -3407,6 +3407,115 @@ async function enviarWhatsAppMarketingTexto(
     return result;
 }
 
+function marketingNormalizarBoton(message) {
+    let id = "";
+    let titulo = "";
+
+    if (message?.type === "button" && message?.button) {
+        id = String(message.button.payload || "").trim();
+        titulo = String(message.button.text || "").trim();
+    }
+
+    if (
+        message?.type === "interactive" &&
+        message?.interactive?.type === "button_reply"
+    ) {
+        id = String(message.interactive.button_reply.id || "").trim();
+        titulo = String(message.interactive.button_reply.title || "").trim();
+    }
+
+    const normalizar = valor =>
+        String(valor || "")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase()
+            .trim();
+
+    return {
+        id: normalizar(id),
+        titulo: normalizar(titulo)
+    };
+}
+
+function marketingEsSolicitudBaja(message) {
+    const boton = marketingNormalizarBoton(message);
+
+    return (
+        boton.titulo.includes("no quiero recibir mas") ||
+        boton.titulo.includes("no quiero recibir mas informacion") ||
+        boton.id === "no_quiero_recibir_mas" ||
+        boton.id === "no_recibir_mas" ||
+        boton.id === "baja" ||
+        boton.id === "unsubscribe"
+    );
+}
+
+async function marketingRegistrarBaja(telefono, nombre) {
+    let contacto =
+        await marketingBuscarContactoPorTelefono(
+            telefono
+        );
+
+    if (!contacto) {
+        const {
+            data,
+            error
+        } =
+            await supabase
+                .from("marketing_contactos")
+                .insert({
+                    telefono:
+                        telefono,
+                    nombre:
+                        nombre || telefono,
+                    activo:
+                        true,
+                    baja_comunicaciones:
+                        true,
+                    bloqueado:
+                        false
+                })
+                .select("*")
+                .single();
+
+        if (error) {
+            throw error;
+        }
+
+        contacto = data;
+    } else if (!contacto.baja_comunicaciones) {
+        const {
+            data,
+            error
+        } =
+            await supabase
+                .from("marketing_contactos")
+                .update({
+                    baja_comunicaciones:
+                        true
+                })
+                .eq(
+                    "id",
+                    contacto.id
+                )
+                .select("*")
+                .single();
+
+        if (error) {
+            throw error;
+        }
+
+        contacto = data;
+    }
+
+    console.log(
+        "[MARKETING] Baja de comunicaciones registrada:",
+        telefono
+    );
+
+    return contacto;
+}
+
 async function marketingRegistrarEventoWebhook(
     message,
     value
@@ -3459,6 +3568,20 @@ async function marketingRegistrarEventoWebhook(
     console.log(
         `[MARKETING] Mensaje entrante de ${from}. Tipo: ${tipo}`
     );
+
+    // -------------------------------------------------
+    // BAJA DE MARKETING
+    // -------------------------------------------------
+    // El botón "No quiero recibir más" NO es una consulta
+    // ni una solicitud de soporte. Nunca debe crear ticket.
+    if (marketingEsSolicitudBaja(message)) {
+        await marketingRegistrarBaja(
+            from,
+            nombre
+        );
+
+        return true;
+    }
 
     /*
      * Marcar el envío de campaña como respondido si
@@ -3661,6 +3784,87 @@ async function marketingRegistrarEventoWebhook(
     }
 
     return true;
+}
+
+
+// =====================================================
+// CHAT MANUAL - ABRIR CONVERSACIÓN
+// =====================================================
+// Crea una conversación reutilizando el mismo modelo que
+// utiliza el panel de tickets. El frontend puede llamar a
+// esta ruta con un teléfono y luego trabajar con el id
+// devuelto usando /tickets/:id y /send-message.
+// =====================================================
+async function abrirConversacionManual(
+    telefono,
+    canal = "soporte",
+    nombre = null
+) {
+    const telefonoNormalizado =
+        marketingNormalizarTelefono(
+            telefono
+        );
+
+    if (
+        !telefonoNormalizado ||
+        telefonoNormalizado.length < 8
+    ) {
+        throw new Error(
+            "Número de teléfono inválido."
+        );
+    }
+
+    const canalNormalizado =
+        String(
+            canal || "soporte"
+        )
+            .trim()
+            .toLowerCase();
+
+    const esMarketing =
+        canalNormalizado === "marketing";
+
+    const cliente =
+        await obtenerCliente(
+            telefonoNormalizado,
+            nombre || telefonoNormalizado
+        );
+
+    if (cliente.bloqueado === true) {
+        throw new Error(
+            "El cliente está bloqueado."
+        );
+    }
+
+    if (esMarketing) {
+        const contacto =
+            await marketingBuscarContactoPorTelefono(
+                telefonoNormalizado
+            );
+
+        if (
+            contacto &&
+            contacto.baja_comunicaciones
+        ) {
+            throw new Error(
+                "El contacto solicitó baja de comunicaciones. No se puede iniciar un chat de Marketing."
+            );
+        }
+    }
+
+    const conversacion =
+        esMarketing
+            ? await crearConversacionMarketing(
+                cliente.id
+            )
+            : await crearConversacion(
+                cliente.id
+            );
+
+    return {
+        conversacion,
+        cliente
+    };
 }
 
 
@@ -4802,6 +5006,100 @@ const server =
                 }
 
                 // =========================================
+                // ABRIR CHAT MANUAL
+                // POST /manual-chat/open
+                //
+                // Permite que el panel inicie una conversación
+                // con cualquier teléfono antes de enviar el primer
+                // mensaje. Se reutiliza el mismo modelo de tickets.
+                // =========================================
+
+                if (
+                    req.method === "POST" &&
+                    pathname === "/manual-chat/open"
+                ) {
+
+                    try {
+
+                        const data =
+                            await leerBody(
+                                req
+                            );
+
+                        const telefono =
+                            data.to ||
+                            data.telefono;
+
+                        const canal =
+                            data.canal ||
+                            "soporte";
+
+                        const nombre =
+                            data.nombre ||
+                            null;
+
+                        if (!telefono) {
+                            responderJSON(
+                                res,
+                                400,
+                                {
+                                    success:
+                                        false,
+                                    error:
+                                        "Falta el campo 'to' o 'telefono'."
+                                }
+                            );
+
+                            return;
+                        }
+
+                        const resultado =
+                            await abrirConversacionManual(
+                                telefono,
+                                canal,
+                                nombre
+                            );
+
+                        responderJSON(
+                            res,
+                            200,
+                            {
+                                success:
+                                    true,
+                                conversacion_id:
+                                    resultado.conversacion.id,
+                                numero_ticket:
+                                    resultado.conversacion.numero_ticket,
+                                cliente:
+                                    resultado.cliente,
+                                conversacion:
+                                    resultado.conversacion
+                            }
+                        );
+
+                    } catch (error) {
+
+                        console.error(
+                            "Error abriendo chat manual:",
+                            error
+                        );
+
+                        responderJSON(
+                            res,
+                            500,
+                            {
+                                success:
+                                    false,
+                                error:
+                                    error.message
+                            }
+                        );
+                    }
+
+                    return;
+                }
+
+                // =========================================
                 // ENVIAR MENSAJE
                 // POST /send-message
                 // =========================================
@@ -4818,14 +5116,22 @@ const server =
                                 req
                             );
 
-                        const telefono =
-                            data.to;
+                        let telefono =
+                            marketingNormalizarTelefono(
+                                data.to
+                            );
 
                         const mensaje =
-                            data.message;
+                            String(
+                                data.message || ""
+                            ).trim();
 
-                        const conversacionId =
-                            data.conversacion_id;
+                        let conversacionId =
+                            data.conversacion_id
+                                ? Number(
+                                    data.conversacion_id
+                                )
+                                : null;
 
                         const agenteId =
                             data.agente_id
@@ -4898,6 +5204,27 @@ const server =
                         ) {
                             canal =
                                 "soporte";
+                        }
+
+                        let conversacionManual =
+                            null;
+
+                        if (!conversacionId) {
+                            const abierto =
+                                await abrirConversacionManual(
+                                    telefono,
+                                    canal,
+                                    data.nombre || null
+                                );
+
+                            conversacionManual =
+                                abierto;
+
+                            conversacionId =
+                                abierto.conversacion.id;
+
+                            telefono =
+                                abierto.cliente.telefono;
                         }
 
                         let resultado;
@@ -5024,6 +5351,12 @@ const server =
                             {
                                 success:
                                     true,
+
+                                conversacion_id:
+                                    conversacionId,
+
+                                numero_ticket:
+                                    conversacionManual?.conversacion?.numero_ticket || null,
 
                                 whatsapp:
                                     resultado
